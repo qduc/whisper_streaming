@@ -129,6 +129,7 @@ class FasterWhisperASR(ASRBase):
 
     def transcribe(self, audio, init_prompt=""):
 
+        init_prompt = "À.ありがとう。"
         # tested: beam_size=5 is faster and better than 1 (on one 200 second document from En ESIC, min chunk 0.01)
         segments, info = self.model.transcribe(audio, language=self.original_language, initial_prompt=init_prompt, beam_size=5, word_timestamps=True, condition_on_previous_text=True, **self.transcribe_kargs)
         #print(info)  # info contains language detection result
@@ -717,7 +718,7 @@ class VACOnlineASRProcessor(OnlineASRProcessor):
             ret = self.online.process_iter()
             return ret
         else:
-            print("no online update, only VAD", self.status, file=self.logfile)
+            logger.debug(f"no online update, only VAD, status: {self.status}")
             return (None, None, "")
 
     def finish(self):

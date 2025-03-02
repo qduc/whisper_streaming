@@ -7,7 +7,8 @@ from collections import deque
 logger = logging.getLogger(__name__)
 
 class TranslatedServerProcessor:
-    def __init__(self, c, online_asr_proc, min_chunk, target_language='en'):
+    def __init__(self, c, online_asr_proc, min_chunk, target_language='en', 
+                 history_size=5, max_history_tokens=500, use_history=True):
         # No import of ServerProcessor
         self.connection = c
         self.online_asr_proc = online_asr_proc
@@ -30,6 +31,11 @@ class TranslatedServerProcessor:
         self.cache_size_limit = 100     # Maximum cache entries
         self.cache_queue = deque()      # For maintaining cache order
         
+        # Translation history settings
+        self.use_history = use_history                    # Whether to use history for context
+        self.translation_history = deque(maxlen=history_size)  # How many past translations to keep
+        self.max_history_tokens = max_history_tokens      # Approximate max tokens to use from history
+        
         # Punctuation that likely indicates a sentence end
         self.sentence_end_markers = ['.', '!', '?', '。', '！', '？', '।', '॥', '։', '؟']
         
@@ -38,6 +44,39 @@ class TranslatedServerProcessor:
         if not text:
             return False
         return any(text.rstrip().endswith(marker) for marker in self.sentence_end_markers)
+    
+    def _prepare_messages_with_history(self, text):
+        """Prepare messages array with history as user/assistant pairs"""
+        # Start with system message
+        messages = [
+            {"role": "system", "content": f"Translate the following speech transcript to {self.target_language}. Output only the translated text without any explanations."}
+        ]
+        
+        # Add history as user/assistant pairs if enabled
+        if self.use_history and self.translation_history:
+            total_chars = 0
+            history_pairs = []
+            
+            # Process history starting from most recent (to prioritize recent context if we hit token limit)
+            for source, target in reversed(self.translation_history):
+                # Rough estimation of token count
+                pair_chars = len(source) + len(target)
+                if total_chars + pair_chars > self.max_history_tokens * 4:
+                    break
+                    
+                # Add this pair to our history (in reverse order since we're going backward)
+                history_pairs.insert(0, (source, target))
+                total_chars += pair_chars
+            
+            # Add the history pairs to messages
+            for source, target in history_pairs:
+                messages.append({"role": "user", "content": source})
+                messages.append({"role": "assistant", "content": target})
+        
+        # Add the current text to translate
+        messages.append({"role": "user", "content": text})
+        
+        return messages
         
     def translate_text(self, text):
         """Translate text with caching to reduce API calls"""
@@ -49,12 +88,12 @@ class TranslatedServerProcessor:
         # Make API call if not in cache
         client = openai.OpenAI()
         try:
+            # Prepare messages with history
+            messages = self._prepare_messages_with_history(text)
+            
             response = client.chat.completions.create(
                 model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": f"Translate the following speech transcript to {self.target_language}. Output only the translated text without any explanations."},
-                    {"role": "user", "content": text}
-                ],
+                messages=messages,
                 max_tokens=1000
             )
             translated = response.choices[0].message.content.strip()
@@ -65,7 +104,10 @@ class TranslatedServerProcessor:
                 oldest = self.cache_queue.popleft()
                 if oldest in self.translation_cache:
                     del self.translation_cache[oldest]
-                    
+            
+            # Add to translation history
+            self.translation_history.append((text, translated))
+            
             self.translation_cache[text] = translated
             self.cache_queue.append(text)
             
