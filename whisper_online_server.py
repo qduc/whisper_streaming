@@ -6,6 +6,8 @@ import argparse
 import os
 import logging
 import numpy as np
+import openai  # Added for translation functionality
+import socket
 
 logger = logging.getLogger(__name__)
 parser = argparse.ArgumentParser()
@@ -15,6 +17,9 @@ parser.add_argument("--host", type=str, default='localhost')
 parser.add_argument("--port", type=int, default=43007)
 parser.add_argument("--warmup-file", type=str, dest="warmup_file", 
         help="The path to a speech audio wav file to warm up Whisper so that the very first chunk processing is fast. It can be e.g. https://github.com/ggerganov/whisper.cpp/raw/master/samples/jfk.wav .")
+# Translation options
+parser.add_argument("--translate", action="store_true", help="Enable translation of transcript")
+parser.add_argument("--target-language", type=str, default="en", help="Target language for translation")
 
 # options from whisper_online
 add_shared_args(parser)
@@ -49,7 +54,6 @@ else:
 ######### Server objects
 
 import line_packet
-import socket
 
 class Connection:
     '''it wraps conn object'''
@@ -165,11 +169,11 @@ class ServerProcessor:
 #        o = online.finish()  # this should be working
 #        self.send_result(o)
 
-
-
 # server loop
 
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+    # Set SO_REUSEADDR option to avoid "Address already in use" error
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.bind((args.host, args.port))
     s.listen(1)
     logger.info('Listening on'+str((args.host, args.port)))
@@ -177,7 +181,16 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         conn, addr = s.accept()
         logger.info('Connected to client on {}'.format(addr))
         connection = Connection(conn)
-        proc = ServerProcessor(connection, online, args.min_chunk_size)
+        
+        # Use the translation processor if translation is enabled
+        if args.translate:
+            # Import when needed, avoiding circular import
+            from translated_server import TranslatedServerProcessor
+            logger.info(f'Translation enabled. Target language: {args.target_language}')
+            proc = TranslatedServerProcessor(connection, online, args.min_chunk_size, args.target_language)
+        else:
+            proc = ServerProcessor(connection, online, args.min_chunk_size)
+            
         proc.process()
         conn.close()
         logger.info('Connection to client closed')
