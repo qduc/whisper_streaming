@@ -26,9 +26,9 @@ parser.add_argument("--max-buffer-time", type=float, default=10.0,
                     help="Maximum time to buffer text before forcing translation")
 parser.add_argument("--min-text-length", type=int, default=20,
                     help="Minimum text length to consider for translation")
-parser.add_argument("--translation-model", type=str, default="gpt-4o-mini",
-                    help="Model to use for translation (e.g. gpt-4o-mini, gpt-3.5-turbo)")
-parser.add_argument("--use-gemini", action="store_true",
+parser.add_argument("--translation-model", type=str, default="gemini-2.0-flash",
+                    help="Model to use for translation (e.g. gemini-2.0-flash, gpt-4o-mini, gpt-3.5-turbo)")
+parser.add_argument("--use-gemini", action="store_true", default=True,
                     help="Use Gemini 2.0 Flash model for translation (requires GEMINI_API_KEY env variable)")
 
 # options from whisper_online
