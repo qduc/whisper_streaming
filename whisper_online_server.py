@@ -20,6 +20,12 @@ parser.add_argument("--warmup-file", type=str, dest="warmup_file",
 # Translation options
 parser.add_argument("--translate", action="store_true", help="Enable translation of transcript")
 parser.add_argument("--target-language", type=str, default="en", help="Target language for translation")
+parser.add_argument("--translation-interval", type=float, default=3.0, 
+                    help="Minimum time in seconds between translation API calls")
+parser.add_argument("--max-buffer-time", type=float, default=10.0, 
+                    help="Maximum time to buffer text before forcing translation")
+parser.add_argument("--min-text-length", type=int, default=20,
+                    help="Minimum text length to consider for translation")
 
 # options from whisper_online
 add_shared_args(parser)
@@ -187,7 +193,23 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             # Import when needed, avoiding circular import
             from translated_server import TranslatedServerProcessor
             logger.info(f'Translation enabled. Target language: {args.target_language}')
-            proc = TranslatedServerProcessor(connection, online, args.min_chunk_size, args.target_language)
+            
+            # Create translation processor with configurable parameters
+            proc = TranslatedServerProcessor(
+                connection, 
+                online, 
+                args.min_chunk_size, 
+                args.target_language
+            )
+            
+            # Set additional translation parameters if provided
+            proc.translation_interval = args.translation_interval
+            proc.max_buffer_time = args.max_buffer_time
+            proc.min_text_length = args.min_text_length
+            
+            logger.info(f'Translation settings: interval={proc.translation_interval}s, '
+                        f'max_buffer={proc.max_buffer_time}s, '
+                        f'min_length={proc.min_text_length} chars')
         else:
             proc = ServerProcessor(connection, online, args.min_chunk_size)
             
