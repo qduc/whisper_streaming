@@ -2,13 +2,15 @@ import sys
 import logging
 import openai
 import time
+import os
 from collections import deque
 
 logger = logging.getLogger(__name__)
 
 class TranslatedServerProcessor:
     def __init__(self, c, online_asr_proc, min_chunk, target_language='en', 
-                 history_size=5, max_history_tokens=500, use_history=True):
+                 history_size=5, max_history_tokens=500, use_history=True,
+                 model="gemini-2.0-flash", use_gemini=True):
         # No import of ServerProcessor
         self.connection = c
         self.online_asr_proc = online_asr_proc
@@ -16,6 +18,8 @@ class TranslatedServerProcessor:
         self.last_end = None
         self.is_first = True
         self.target_language = target_language
+        self.model = model
+        self.use_gemini = use_gemini
         
         # Initialize for audio processing
         self.SAMPLING_RATE = 16000
@@ -86,16 +90,37 @@ class TranslatedServerProcessor:
             return self.translation_cache[text]
         
         # Make API call if not in cache
-        client = openai.OpenAI()
         try:
             # Prepare messages with history
             messages = self._prepare_messages_with_history(text)
             
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=messages,
-                max_tokens=1000
-            )
+            if self.use_gemini:
+                # Use Gemini 2.0 Flash model
+                gemini_api_key = os.environ.get("GEMINI_API_KEY")
+                if not gemini_api_key:
+                    logger.warning("GEMINI_API_KEY environment variable not set. Falling back to OpenAI.")
+                    client = openai.OpenAI()
+                else:
+                    client = openai.OpenAI(
+                        api_key=gemini_api_key,
+                        base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+                    )
+                    logger.debug("Using Gemini API for translation")
+                    
+                response = client.chat.completions.create(
+                    model="gemini-2.0-flash",  # Use Gemini's model
+                    messages=messages,
+                    max_tokens=1000
+                )
+            else:
+                # Use standard OpenAI model
+                client = openai.OpenAI()
+                response = client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    max_tokens=1000
+                )
+                
             translated = response.choices[0].message.content.strip()
             
             # Add to cache
@@ -196,13 +221,14 @@ class TranslatedServerProcessor:
             # Add text to buffer for later translation
             self.text_buffer.append(o[2])
             self.time_buffer.append((beg, end))
+
+            print(f"{beg} {end} {o[2]}")
             
             # Check if we should translate now
             if self.should_translate_buffer():
                 translated_segments = self.translate_buffer()
                 
                 for t_beg, t_end, translated_text in translated_segments:
-                    print(f"{t_beg} {t_end} {translated_text} (translated from buffer)", flush=True, file=sys.stderr)
                     msg = f"{t_beg} {t_end} {translated_text}"
                     self.connection.send(msg)
         else:

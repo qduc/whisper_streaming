@@ -26,6 +26,10 @@ parser.add_argument("--max-buffer-time", type=float, default=10.0,
                     help="Maximum time to buffer text before forcing translation")
 parser.add_argument("--min-text-length", type=int, default=20,
                     help="Minimum text length to consider for translation")
+parser.add_argument("--translation-model", type=str, default="gpt-4o-mini",
+                    help="Model to use for translation (e.g. gpt-4o-mini, gpt-3.5-turbo)")
+parser.add_argument("--use-gemini", action="store_true",
+                    help="Use Gemini 2.0 Flash model for translation (requires GEMINI_API_KEY env variable)")
 
 # options from whisper_online
 add_shared_args(parser)
@@ -199,13 +203,25 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 connection, 
                 online, 
                 args.min_chunk_size, 
-                args.target_language
+                args.target_language,
+                model=args.translation_model,
+                use_gemini=args.use_gemini
             )
             
             # Set additional translation parameters if provided
             proc.translation_interval = args.translation_interval
             proc.max_buffer_time = args.max_buffer_time
             proc.min_text_length = args.min_text_length
+            
+            # Log model selection
+            if args.use_gemini:
+                gemini_api_key = os.environ.get("GEMINI_API_KEY")
+                if gemini_api_key:
+                    logger.info(f'Using Gemini 2.0 Flash model for translation')
+                else:
+                    logger.warning('GEMINI_API_KEY environment variable not set. Will fall back to OpenAI.')
+            else:
+                logger.info(f'Using OpenAI model: {args.translation_model}')
             
             logger.info(f'Translation settings: interval={proc.translation_interval}s, '
                         f'max_buffer={proc.max_buffer_time}s, '
