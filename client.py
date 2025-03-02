@@ -119,6 +119,7 @@ class WhisperClient:
                         else:
                             # Raw format - just print the transcript text
                             print(line)
+                        print("\n")
                         sys.stdout.flush()
             except Exception as e:
                 if self.is_recording:

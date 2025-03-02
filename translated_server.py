@@ -28,8 +28,8 @@ class TranslatedServerProcessor:
         self.text_buffer = []
         self.time_buffer = []
         self.last_translation_time = time.time()
-        self.translation_interval = 3.0  # Minimum seconds between translation calls
-        self.max_buffer_time = 10.0     # Maximum seconds to buffer before forcing translation
+        self.translation_interval = 4.0  # Minimum seconds between translation calls
+        self.max_buffer_time = 5.0     # Maximum seconds to buffer before forcing translation
         self.min_text_length = 20       # Minimum characters to consider translation
         self.translation_cache = {}     # Simple cache for translations
         self.cache_size_limit = 100     # Maximum cache entries
@@ -142,24 +142,54 @@ class TranslatedServerProcessor:
             logger.error(f"Translation error: {e}")
             return text  # Fall back to original text on error
             
+    def split_at_sentence_end(self, text):
+        """Split text at the last sentence end marker, returns (sentence_part, remainder)"""
+        if not text:
+            return "", ""
+            
+        # Find the last occurrence of any sentence end marker
+        last_end_pos = -1
+        for marker in self.sentence_end_markers:
+            pos = text.rfind(marker)
+            if pos > last_end_pos:
+                last_end_pos = pos
+                
+        if last_end_pos >= 0:
+            # Include the marker in the first part
+            return text[:last_end_pos + 1].strip(), text[last_end_pos + 1:].strip()
+        return "", text.strip()
+
     def should_translate_buffer(self):
         """Determine if we should translate the current buffer"""
         if not self.text_buffer:
             return False
             
         current_time = time.time()
+        buffer_text = " ".join(self.text_buffer)
         
-        # Force translation if buffer is too old
-        if current_time - self.last_translation_time > self.max_buffer_time and self.text_buffer:
-            logger.debug("Translating due to max buffer time reached")
+        # Split at last sentence end if possible and text is long enough
+        sentence_part, remainder = self.split_at_sentence_end(buffer_text)
+        if sentence_part and len(sentence_part) >= self.min_text_length:
+            # Keep remainder in buffer
+            if remainder:
+                self.text_buffer = [remainder]
+            else:
+                self.text_buffer = []
             return True
             
-        # Translate if we have complete sentences and enough time has passed
-        buffer_text = " ".join(self.text_buffer)
-        if (self.is_sentence_end(buffer_text) and 
-                len(buffer_text) >= self.min_text_length and 
-                current_time - self.last_translation_time > self.translation_interval):
+        # Second priority: Force translation if buffer is too old
+        if current_time - self.last_translation_time > self.max_buffer_time and self.text_buffer:
             return True
+            
+        # Third priority: Very long text regardless of sentence completion
+        if len(buffer_text) > 150:
+            return True
+            
+        # Last priority: Minimum length + time interval
+        if len(buffer_text) >= self.min_text_length and \
+           current_time - self.last_translation_time > self.translation_interval:
+            # Only translate if we have at least a comma or similar pause
+            return any(marker in buffer_text for marker in [',', '、', ';', '：', ':', '-'])
             
         return False
         
@@ -220,9 +250,11 @@ class TranslatedServerProcessor:
             
             # Add text to buffer for later translation
             self.text_buffer.append(o[2])
-            self.time_buffer.append((beg, end))
+            self.time_buffer.append((round(beg, 2), round(end, 2)))
 
-            print(f"{beg} {end} {o[2]}")
+            # Log original text
+            text = o[2].replace("  ", " ")  # Replace double spaces with single spaces
+            print(f"{o[0]} {o[1]} {text}")
             
             # Check if we should translate now
             if self.should_translate_buffer():
