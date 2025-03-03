@@ -250,11 +250,11 @@ class TranslatedServerProcessor:
             
             # Add text to buffer for later translation
             self.text_buffer.append(o[2])
-            self.time_buffer.append((round(beg, 2), round(end, 2)))
+            self.time_buffer.append((beg, end))
 
             # Log original text
             text = o[2].replace("  ", " ")  # Replace double spaces with single spaces
-            print(f"{o[0]} {o[1]} {text}")
+            print(f"{round(o[0], 2)} {round(o[1], 2)} {text}")
             
             # Check if we should translate now
             if self.should_translate_buffer():
