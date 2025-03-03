@@ -17,7 +17,9 @@ class TranslatedServerProcessor(BaseServerProcessor):
     """Server processor that adds real-time translation capabilities"""
     
     def __init__(self, connection, online_asr_proc, min_chunk, target_language='en',
-                 model="gemini-2.0-flash", translation_provider='gemini'):
+                 model="gemini-2.0-flash", translation_provider='gemini', 
+                 translation_interval=4.0, max_buffer_time=5.0, inactivity_timeout=2.0, 
+                 min_text_length=20):
         super().__init__(connection, online_asr_proc, min_chunk)
         
         # Initialize translation manager
@@ -32,10 +34,10 @@ class TranslatedServerProcessor(BaseServerProcessor):
         self.time_buffer = []
         self.last_translation_time = time.time()
         self.last_text_time = time.time()  # Track time of last received text
-        self.translation_interval = 4.0  # Minimum seconds between translation calls
-        self.max_buffer_time = 5.0       # Maximum seconds to buffer before forcing translation
-        self.inactivity_timeout = 2.0    # Seconds of inactivity before translating remaining buffer
-        self.min_text_length = 20        # Minimum characters to consider translation
+        self.translation_interval = translation_interval  # Minimum seconds between translation calls
+        self.max_buffer_time = max_buffer_time           # Maximum seconds to buffer before forcing translation
+        self.inactivity_timeout = inactivity_timeout     # Seconds of inactivity before translating remaining buffer
+        self.min_text_length = min_text_length           # Minimum characters to consider translation
         
     def should_translate_buffer(self):
         """Determine if we should translate the current buffer"""
