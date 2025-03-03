@@ -31,14 +31,21 @@ class TranslatedServerProcessor(BaseServerProcessor):
         self.text_buffer = []
         self.time_buffer = []
         self.last_translation_time = time.time()
+        self.last_text_time = time.time()  # Track time of last received text
         self.translation_interval = 4.0  # Minimum seconds between translation calls
         self.max_buffer_time = 5.0       # Maximum seconds to buffer before forcing translation
+        self.inactivity_timeout = 2.0    # Seconds of inactivity before translating remaining buffer
         self.min_text_length = 20        # Minimum characters to consider translation
         
     def should_translate_buffer(self):
         """Determine if we should translate the current buffer"""
+        current_time = time.time()
         # Check if enough time has passed since last translation
-        time_since_last = time.time() - self.last_translation_time
+        time_since_last = current_time - self.last_translation_time
+        
+        # Check for inactivity timeout - translate if no new text for a while and buffer not empty
+        if self.text_buffer and (current_time - self.last_text_time) > self.inactivity_timeout:
+            return True
 
         # Case 1: Buffer has been accumulating for too long
         if self.time_buffer and time_since_last > self.max_buffer_time:
@@ -135,6 +142,9 @@ class TranslatedServerProcessor(BaseServerProcessor):
             # Add text to buffer for later translation
             self.text_buffer.append(o[2])
             self.time_buffer.append((beg, end))
+            
+            # Update the last text time for inactivity detection
+            self.last_text_time = time.time()
 
             # Log original text
             text = o[2].replace("  ", " ")  # Replace double spaces with single spaces
@@ -158,19 +168,56 @@ class TranslatedServerProcessor(BaseServerProcessor):
                     self.connection.send(msg)
         else:
             logger.debug("No text in this segment")
-            
-    def process(self):
-        """Override to handle final translation buffer"""
-        super().process()
-        
-        # Process any remaining text in the buffer
-        if self.text_buffer:
+    
+    def check_inactivity_timeout(self):
+        """Check if we should translate the buffer due to inactivity"""
+        if self.text_buffer and (time.time() - self.last_text_time) > self.inactivity_timeout:
             translated_segments = self.translate_buffer()
             for t_beg, t_end, translated_text in translated_segments:
-                print(f"{t_beg} {t_end} {translated_text} (final translated buffer)", flush=True, file=sys.stderr)
+                print(f"{t_beg} {t_end} {translated_text} (inactivity timeout)", flush=True, file=sys.stderr)
                 try:
                     msg = f"{t_beg} {t_end} {translated_text}"
                     self.connection.send(msg)
                 except BrokenPipeError:
-                    logger.info("broken pipe sending final buffer -- connection closed")
+                    logger.info("broken pipe sending timeout buffer -- connection closed")
                     break
+            return True
+        return False
+            
+    def process(self):
+        """Override to handle final translation buffer and periodic timeout checks"""
+        self.online_asr_proc.init()
+        try:
+            while True:
+                a = self.receive_audio_chunk()
+                
+                # Check for inactivity timeout while waiting for audio
+                if self.check_inactivity_timeout() and a is None:
+                    # If we've handled timeout and there's no more audio, we can break
+                    break
+                    
+                if a is None:
+                    break
+                    
+                self.online_asr_proc.insert_audio_chunk(a)
+                o = self.online_asr_proc.process_iter()
+                try:
+                    self.send_result(o)
+                except BrokenPipeError:
+                    logger.info("broken pipe -- connection closed?")
+                    break
+                    
+            # Process any remaining text in the buffer
+            if self.text_buffer:
+                translated_segments = self.translate_buffer()
+                for t_beg, t_end, translated_text in translated_segments:
+                    print(f"{t_beg} {t_end} {translated_text} (final translated buffer)", flush=True, file=sys.stderr)
+                    try:
+                        msg = f"{t_beg} {t_end} {translated_text}"
+                        self.connection.send(msg)
+                    except BrokenPipeError:
+                        logger.info("broken pipe sending final buffer -- connection closed")
+                        break
+        except Exception as e:
+            logger.error(f"Error in processor: {e}")
+            raise
