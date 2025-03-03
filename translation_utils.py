@@ -9,11 +9,11 @@ logger = logging.getLogger(__name__)
 class TranslationManager:
     """Handles translation of text using various API providers"""
     
-    def __init__(self, target_language='en', model="gemini-2.0-flash", use_gemini=True,
+    def __init__(self, target_language='en', model="gemini-2.0-flash", translation_provider='gemini',
                  history_size=5, max_history_tokens=500, use_history=True):
         self.target_language = target_language
         self.model = model
-        self.use_gemini = use_gemini
+        self.translation_provider = translation_provider
         
         # Translation cache settings
         self.translation_cache = {}     # Simple cache for translations
@@ -79,7 +79,7 @@ class TranslationManager:
             # Prepare messages with history
             messages = self._prepare_messages_with_history(text)
             
-            if self.use_gemini:
+            if self.translation_provider == 'gemini':
                 # Use Gemini 2.0 Flash model
                 gemini_api_key = os.environ.get("GEMINI_API_KEY")
                 if not gemini_api_key:
@@ -97,7 +97,7 @@ class TranslationManager:
                     messages=messages,
                     max_tokens=1000
                 )
-            else:
+            elif self.translation_provider == 'openai':
                 # Use standard OpenAI model
                 client = openai.OpenAI()
                 response = client.chat.completions.create(
@@ -105,6 +105,8 @@ class TranslationManager:
                     messages=messages,
                     max_tokens=1000
                 )
+            else:
+                raise ValueError(f"Unknown translation provider: {self.translation_provider}")
                 
             translated = response.choices[0].message.content.strip()
             

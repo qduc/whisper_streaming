@@ -17,14 +17,14 @@ class TranslatedServerProcessor(BaseServerProcessor):
     """Server processor that adds real-time translation capabilities"""
     
     def __init__(self, connection, online_asr_proc, min_chunk, target_language='en',
-                 model="gemini-2.0-flash", use_gemini=True):
+                 model="gemini-2.0-flash", translation_provider='gemini'):
         super().__init__(connection, online_asr_proc, min_chunk)
         
         # Initialize translation manager
         self.translation_manager = TranslationManager(
             target_language=target_language,
             model=model,
-            use_gemini=use_gemini
+            translation_provider=translation_provider
         )
         
         # Translation buffer settings
