@@ -37,37 +37,72 @@ class TranslatedServerProcessor(BaseServerProcessor):
         
     def should_translate_buffer(self):
         """Determine if we should translate the current buffer"""
-        if not self.text_buffer:
-            return False
-            
-        current_time = time.time()
-        buffer_text = " ".join(self.text_buffer)
-        
-        # Split at last sentence end if possible and text is long enough
-        sentence_part, remainder = self.translation_manager.split_at_sentence_end(buffer_text)
-        if sentence_part and len(sentence_part) >= self.min_text_length:
-            # Keep remainder in buffer
-            if remainder:
-                self.text_buffer = [remainder]
-            else:
-                self.text_buffer = []
+        # Check if enough time has passed since last translation
+        time_since_last = time.time() - self.last_translation_time
+
+        # Case 1: Buffer has been accumulating for too long
+        if self.time_buffer and time_since_last > self.max_buffer_time:
             return True
             
-        # Second priority: Force translation if buffer is too old
-        if current_time - self.last_translation_time > self.max_buffer_time and self.text_buffer:
-            return True
+        # Case 2: Enough time has passed AND we have minimum text to translate
+        if time_since_last > self.translation_interval and len("".join(self.text_buffer)) >= self.min_text_length:
+            # Check if the buffer ends with a sentence terminator
+            combined_text = " ".join(self.text_buffer)
+            if self.translation_manager.is_sentence_end(combined_text):
+                return True
             
-        # Third priority: Very long text regardless of sentence completion
-        if len(buffer_text) > 150:
-            return True
+            # Check if we can at least split at a sentence boundary
+            sentence_part, _ = self.translation_manager.split_at_sentence_end(combined_text)
+            if sentence_part and len(sentence_part) >= self.min_text_length:
+                # We have at least one complete sentence that meets minimum length
+                return True
             
-        # Last priority: Minimum length + time interval
-        if len(buffer_text) >= self.min_text_length and \
-           current_time - self.last_translation_time > self.translation_interval:
-            # Only translate if we have at least a comma or similar pause
-            return any(marker in buffer_text for marker in [',', '、', ';', '：', ':', '-'])
-            
+        # Don't translate yet
         return False
+        
+    def partial_translate_buffer(self):
+        """Translate only the complete sentences in the buffer, keeping remainder for next translation"""
+        if not self.text_buffer:
+            return []
+            
+        combined_text = " ".join(self.text_buffer)
+        sentence_part, remainder = self.translation_manager.split_at_sentence_end(combined_text)
+        
+        if not sentence_part:  # No complete sentence found
+            return []
+            
+        # Translate the complete sentence part
+        translated_text = self.translation_manager.translate_text(sentence_part)
+        
+        # Calculate appropriate time boundaries
+        # A rough approximation based on character proportions 
+        if self.time_buffer:
+            total_chars = len(combined_text)
+            sentence_chars = len(sentence_part)
+            char_ratio = sentence_chars / total_chars if total_chars > 0 else 0
+            
+            start_time = self.time_buffer[0][0]
+            end_time_full = self.time_buffer[-1][1]
+            
+            # Estimate end time proportionally 
+            end_time = start_time + (end_time_full - start_time) * char_ratio
+            
+            # Update time and text buffers to keep remainder
+            if remainder:
+                # Keep track of remaining text and adjust time buffer
+                self.text_buffer = [remainder]
+                # Approximate the starting time for remainder
+                self.time_buffer = [(end_time, self.time_buffer[-1][1])]
+            else:
+                # Clear buffers if nothing remains
+                self.text_buffer = []
+                self.time_buffer = []
+                
+            self.last_translation_time = time.time()
+            
+            return [(start_time, end_time, translated_text)]
+        
+        return []
         
     def translate_buffer(self):
         """Translate accumulated text buffer and clear it"""
@@ -107,7 +142,16 @@ class TranslatedServerProcessor(BaseServerProcessor):
             
             # Check if we should translate now
             if self.should_translate_buffer():
-                translated_segments = self.translate_buffer()
+                # Determine if we should do partial translation or full buffer
+                combined_text = " ".join(self.text_buffer)
+                has_complete_sentence = self.translation_manager.split_at_sentence_end(combined_text)[0] != ""
+                
+                if has_complete_sentence and len(combined_text) > self.min_text_length * 2:
+                    # Use partial translation when we have long text with complete sentences
+                    translated_segments = self.partial_translate_buffer()
+                else:
+                    # Otherwise translate the entire buffer
+                    translated_segments = self.translate_buffer()
                 
                 for t_beg, t_end, translated_text in translated_segments:
                     msg = f"{t_beg} {t_end} {translated_text}"

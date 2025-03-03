@@ -93,7 +93,7 @@ class TranslationManager:
                     logger.debug("Using Gemini API for translation")
                     
                 response = client.chat.completions.create(
-                    model="gemini-2.0-flash",  # Use Gemini's model
+                    model=self.model,  # Use Gemini's model
                     messages=messages,
                     max_tokens=1000
                 )
