@@ -11,8 +11,8 @@ class VADIterator:
                  model,
                  threshold: float = 0.5,
                  sampling_rate: int = 16000,
-                 min_silence_duration_ms: int = 500,  # makes sense on one recording that I checked
-                 speech_pad_ms: int = 100             # same 
+                 min_silence_duration_ms: int = 3000,  # makes sense on one recording that I checked
+                 speech_pad_ms: int = 900             # same 
                  ):
 
         """

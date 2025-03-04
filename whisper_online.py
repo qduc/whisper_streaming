@@ -717,7 +717,7 @@ class VACOnlineASRProcessor(OnlineASRProcessor):
             ret = self.online.process_iter()
             return ret
         else:
-            print("no online update, only VAD", self.status, file=self.logfile)
+            logger.debug(f"no online update, only VAD, status: {self.status}")
             return (None, None, "")
 
     def finish(self):
@@ -771,7 +771,7 @@ def add_shared_args(parser):
     parser.add_argument('--model_dir', type=str, default=None, help="Dir where Whisper model.bin and other files are saved. This option overrides --model and --model_cache_dir parameter.")
     parser.add_argument('--lan', '--language', type=str, default='auto', help="Source language code, e.g. en,de,cs, or 'auto' for language detection.")
     parser.add_argument('--task', type=str, default='transcribe', choices=["transcribe","translate"],help="Transcribe or translate.")
-    parser.add_argument('--backend', type=str, default="faster-whisper", choices=["faster-whisper", "whisper_timestamped", "mlx-whisper", "openai-api"],help='Load only this backend for Whisper processing.')
+    parser.add_argument('--backend', type=str, default="auto", choices=["faster-whisper", "whisper_timestamped", "mlx-whisper", "openai-api", "auto"],help='Backend for Whisper processing. "auto" will select optimized backend based on available hardware (mlx on Apple Silicon, faster-whisper on NVIDIA GPUs).')
     parser.add_argument('--vac', action="store_true", default=False, help='Use VAC = voice activity controller. Recommended. Requires torch.')
     parser.add_argument('--vac-chunk-size', type=float, default=0.04, help='VAC sample size in seconds.')
     parser.add_argument('--vad', action="store_true", default=False, help='Use VAD = voice activity detection, with the default parameters.')
@@ -784,6 +784,18 @@ def asr_factory(args, logfile=sys.stderr):
     Creates and configures an ASR and ASR Online instance based on the specified backend and arguments.
     """
     backend = args.backend
+    
+    # Auto-select backend based on hardware if not explicitly specified
+    if backend == "auto":
+        backend = "faster-whisper"  # Default to faster-whisper
+        try:
+            import platform
+            if platform.system() == "Darwin" and platform.processor() == "arm":
+                logger.info("Detected Apple Silicon, automatically using mlx-whisper backend")
+                backend = "mlx-whisper"
+        except ImportError:
+            logger.info("Could not detect hardware, using faster-whisper backend")
+            
     if backend == "openai-api":
         logger.debug("Using OpenAI API.")
         asr = OpenaiApiASR(lan=args.lan)
