@@ -2,6 +2,7 @@
 import sys
 import logging
 import time
+import json
 from server_base import BaseServerProcessor
 from translation_utils import TranslationManager
 
@@ -38,6 +39,9 @@ class TranslatedServerProcessor(BaseServerProcessor):
         self.max_buffer_time = max_buffer_time           # Maximum seconds to buffer before forcing translation
         self.inactivity_timeout = inactivity_timeout     # Seconds of inactivity before translating remaining buffer
         self.min_text_length = min_text_length           # Minimum characters to consider translation
+        
+        # Check if connection is WebSocket
+        self.is_websocket = hasattr(connection, 'websocket') if connection else False
         
     def should_translate_buffer(self):
         """Determine if we should translate the current buffer"""
@@ -152,6 +156,10 @@ class TranslatedServerProcessor(BaseServerProcessor):
             text = o[2].replace("  ", " ")  # Replace double spaces with single spaces
             print(f"{round(o[0], 2)} {round(o[1], 2)} {text}")
             
+            # Format for sending to client
+            msg = f"{beg} {end} {text}"
+            self.connection.send(msg)
+            
             # Check if we should translate now
             if self.should_translate_buffer():
                 # Determine if we should do partial translation or full buffer
@@ -166,7 +174,15 @@ class TranslatedServerProcessor(BaseServerProcessor):
                     translated_segments = self.translate_buffer()
                 
                 for t_beg, t_end, translated_text in translated_segments:
-                    msg = f"{t_beg} {t_end} {translated_text}"
+                    # Format translation message differently for WebSocket vs TCP
+                    if hasattr(self.connection, 'websocket'):
+                        # For WebSocket, mark the message as containing a translation
+                        # The WebSocketClientConnection will parse this format and convert to JSON
+                        msg = f"{t_beg} {t_end} {combined_text} (translation) {translated_text}"
+                    else:
+                        # For TCP, keep the original format
+                        msg = f"{t_beg} {t_end} {translated_text}"
+                        
                     self.connection.send(msg)
         else:
             logger.debug("No text in this segment")
@@ -178,7 +194,17 @@ class TranslatedServerProcessor(BaseServerProcessor):
             for t_beg, t_end, translated_text in translated_segments:
                 print(f"{t_beg} {t_end} {translated_text} (inactivity timeout)", flush=True, file=sys.stderr)
                 try:
-                    msg = f"{t_beg} {t_end} {translated_text}"
+                    # Get the original text for WebSocket clients
+                    combined_text = " ".join(self.text_buffer) if self.text_buffer else ""
+                    
+                    # Format translation message differently for WebSocket vs TCP
+                    if hasattr(self.connection, 'websocket'):
+                        # For WebSocket, mark the message as containing a translation
+                        msg = f"{t_beg} {t_end} {combined_text} (translation) {translated_text}"
+                    else:
+                        # For TCP, keep the original format
+                        msg = f"{t_beg} {t_end} {translated_text}"
+                        
                     self.connection.send(msg)
                 except BrokenPipeError:
                     logger.info("broken pipe sending timeout buffer -- connection closed")
@@ -215,7 +241,17 @@ class TranslatedServerProcessor(BaseServerProcessor):
                 for t_beg, t_end, translated_text in translated_segments:
                     print(f"{t_beg} {t_end} {translated_text} (final translated buffer)", flush=True, file=sys.stderr)
                     try:
-                        msg = f"{t_beg} {t_end} {translated_text}"
+                        # Get the original text for WebSocket clients
+                        combined_text = " ".join(self.text_buffer) if self.text_buffer else ""
+                        
+                        # Format translation message differently for WebSocket vs TCP
+                        if hasattr(self.connection, 'websocket'):
+                            # For WebSocket, mark the message as containing a translation
+                            msg = f"{t_beg} {t_end} {combined_text} (translation) {translated_text}"
+                        else:
+                            # For TCP, keep the original format
+                            msg = f"{t_beg} {t_end} {translated_text}"
+                            
                         self.connection.send(msg)
                     except BrokenPipeError:
                         logger.info("broken pipe sending final buffer -- connection closed")

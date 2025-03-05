@@ -64,7 +64,35 @@ class WebSocketClientConnection:
     
     async def send(self, message):
         """Send response back to the client"""
-        await self.websocket.send(json.dumps({"transcript": message}))
+        # Parse the message format: "beg_time end_time text"
+        parts = message.split(' ', 2)
+        if len(parts) >= 3:
+            beg_time, end_time, text = parts
+            response = {
+                "text": text,
+                "start_timestamp": float(beg_time),
+                "end_timestamp": float(end_time)
+            }
+        else:
+            # Handle case where message format is different
+            response = {"text": message}
+        
+        # Check if this is a translation message (contains translation marker)
+        if " (translation) " in message:
+            parts = message.split(" (translation) ", 1)
+            if len(parts) >= 2:
+                original_parts = parts[0].split(' ', 2)
+                if len(original_parts) >= 3:
+                    beg_time, end_time, _ = original_parts
+                    translation_text = parts[1]
+                    response = {
+                        "text": text.split(" (translation) ")[0],
+                        "translation": translation_text,
+                        "start_timestamp": float(beg_time),
+                        "end_timestamp": float(end_time)
+                    }
+        
+        await self.websocket.send(json.dumps(response))
 
 class WebSocketServerProcessor(BaseServerProcessor):
     """WebSocket implementation of the server processor"""
