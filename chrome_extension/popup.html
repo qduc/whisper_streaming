@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Whisper Live Transcription</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      width: 300px;
+      padding: 15px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      margin-bottom: 15px;
+    }
+    .header img {
+      width: 32px;
+      height: 32px;
+      margin-right: 10px;
+    }
+    h1 {
+      font-size: 18px;
+      margin: 0;
+    }
+    .status {
+      padding: 8px;
+      border-radius: 4px;
+      margin: 10px 0;
+      font-weight: bold;
+      text-align: center;
+    }
+    .listening {
+      background-color: #d4edda;
+      color: #155724;
+    }
+    .disconnected {
+      background-color: #f8d7da;
+      color: #721c24;
+    }
+    .error {
+      background-color: #f8d7da;
+      color: #721c24;
+      padding: 10px;
+      display: none;
+      margin-bottom: 10px;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+    .form-group {
+      margin-bottom: 15px;
+    }
+    label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+    }
+    input, select {
+      width: 100%;
+      padding: 8px;
+      box-sizing: border-box;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    button {
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      padding: 10px 15px;
+      text-align: center;
+      text-decoration: none;
+      display: inline-block;
+      font-size: 16px;
+      margin: 4px 2px;
+      cursor: pointer;
+      border-radius: 4px;
+      width: 100%;
+      font-weight: bold;
+    }
+    button.stop {
+      background-color: #f44336;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Whisper Live Transcription</h1>
+  </div>
+  
+  <div class="error" id="error-message"></div>
+  
+  <div class="status disconnected" id="status">Disconnected</div>
+  
+  <div class="form-group">
+    <label for="server-url">WebSocket Server URL:</label>
+    <input type="text" id="server-url" value="ws://localhost:43007">
+  </div>
+  
+  <div class="form-group">
+    <label for="text-size">Text Size:</label>
+    <select id="text-size">
+      <option value="small">Small</option>
+      <option value="medium" selected>Medium</option>
+      <option value="large">Large</option>
+    </select>
+  </div>
+  
+  <div class="form-group">
+    <label for="overlay-opacity">Overlay Opacity:</label>
+    <input type="range" id="overlay-opacity" min="0.1" max="1" step="0.1" value="0.8">
+  </div>
+  
+  <button id="action-button">Start Transcription</button>
+  
+  <script src="popup.js"></script>
+</body>
+</html>

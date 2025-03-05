@@ -33,6 +33,7 @@ def parse_arguments():
     # Server options
     parser.add_argument("--host", type=str, default='localhost')
     parser.add_argument("--port", type=int, default=43007)
+    parser.add_argument("--websocket", action="store_true", help="Start server in WebSocket mode instead of TCP")
     parser.add_argument("--warmup-file", type=str, dest="warmup_file", 
             help="The path to a speech audio wav file to warm up Whisper so that the very first chunk processing is fast.")
     
@@ -163,28 +164,40 @@ def main():
     asr, online = asr_factory(args)
     warmup_asr(args, asr)
 
-    # Start server
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        # Set SO_REUSEADDR option to avoid "Address already in use" error
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        s.bind((args.host, args.port))
-        s.listen(1)
-        logger.info('Listening on ' + str((args.host, args.port)))
+    if args.websocket:
+        from websocket_connection import WebSocketConnection
+        server = WebSocketConnection(args.host, args.port)
+        logger.info(f'Starting WebSocket server on {args.host}:{args.port}')
         
-        while True:
-            conn, addr = s.accept()
-            logger.info('Connected to client on {}'.format(addr))
-            connection = Connection(conn)
-            
-            # Create appropriate processor
+        async def handle_connection(websocket):
+            connection = Connection(websocket)
             proc = create_processor(args, connection, online, config)
+            await proc.process()
             
-            # Process client connection
-            proc.process()
-            conn.close()
-            logger.info('Connection to client closed')
-    
-    logger.info('Connection closed, terminating.')
+        server.run(handle_connection)
+    else:
+        # Start TCP server
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            # Set SO_REUSEADDR option to avoid "Address already in use" error
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind((args.host, args.port))
+            s.listen(1)
+            logger.info('Listening on ' + str((args.host, args.port)))
+            
+            while True:
+                conn, addr = s.accept()
+                logger.info('Connected to client on {}'.format(addr))
+                connection = Connection(conn)
+                
+                # Create appropriate processor
+                proc = create_processor(args, connection, online, config)
+                
+                # Process client connection
+                proc.process()
+                conn.close()
+                logger.info('Connection to client closed')
+        
+        logger.info('Connection closed, terminating.')
 
 if __name__ == "__main__":
     main()
