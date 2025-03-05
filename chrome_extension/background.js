@@ -30,8 +30,21 @@ async function hasOffscreenDocument() {
 
 // Create offscreen document if needed
 async function setupOffscreenDocument() {
-  if (await hasOffscreenDocument()) return;
+  // First check if document already exists
+  const exists = await hasOffscreenDocument();
   
+  // If it exists, close it first to avoid the "Only a single offscreen document may be created" error
+  if (exists) {
+    try {
+      await chrome.offscreen.closeDocument();
+      // Small delay to ensure document is fully closed
+      await new Promise(resolve => setTimeout(resolve, 100));
+    } catch (error) {
+      console.error('Error closing existing offscreen document:', error);
+    }
+  }
+  
+  // Now create a new document
   await chrome.offscreen.createDocument({
     url: 'offscreen.html',
     reasons: ['USER_MEDIA'],
@@ -75,6 +88,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 async function startTranscription(settings) {
   if (isTranscribing) {
     await stopTranscription();
+    // Add a small delay after stopping to ensure cleanup is complete
+    await new Promise(resolve => setTimeout(resolve, 200));
   }
 
   try {
@@ -105,11 +120,22 @@ async function startTranscription(settings) {
     // Setup offscreen document to handle tab capture
     await setupOffscreenDocument();
     
-    // Request the offscreen document to start capturing
+    // Chrome 116+: Get media stream ID in the service worker
+    const streamId = await chrome.tabCapture.getMediaStreamId({ 
+      targetTabId: currentTabId 
+    });
+    
+    // Update settings with the stream ID to pass to offscreen document
+    const settingsWithStream = {
+      ...settings,
+      streamId: streamId
+    };
+    
+    // Request the offscreen document to start capturing with the stream ID
     chrome.runtime.sendMessage({
       action: 'startCapture',
       tabId: currentTabId,
-      settings: settings
+      settings: settingsWithStream
     });
     
     // Notify content script to show overlay

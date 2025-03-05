@@ -20,17 +20,34 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 async function startCapture(settings, tabId) {
   try {
-    // Request tab audio stream
-    const stream = await chrome.tabCapture.capture({
-      audio: true,
-      video: false,
-      audioConstraints: {
-        mandatory: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
-        }
+    // Get the media stream ID for the tab
+    // Note: In Chrome 116+, the streamId is now received directly from the service worker
+    // instead of calling getMediaStreamId within the offscreen document
+    const streamId = await new Promise((resolve, reject) => {
+      // Check if the streamId was passed directly from background.js
+      if (settings && settings.streamId) {
+        resolve(settings.streamId);
+      } else {
+        // Fall back to the old method if streamId wasn't provided
+        chrome.tabCapture.getMediaStreamId({ targetTabId: tabId }, (streamId) => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+          } else {
+            resolve(streamId);
+          }
+        });
       }
+    });
+    
+    // Use the stream ID to capture the tab audio
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        mandatory: {
+          chromeMediaSource: 'tab',
+          chromeMediaSourceId: streamId
+        }
+      },
+      video: false
     });
     
     if (!stream) {

@@ -165,14 +165,56 @@ def main():
     warmup_asr(args, asr)
 
     if args.websocket:
-        from websocket_connection import WebSocketConnection
+        from websocket_connection import WebSocketConnection, WebSocketServerProcessor
         server = WebSocketConnection(args.host, args.port)
         logger.info(f'Starting WebSocket server on {args.host}:{args.port}')
         
         async def handle_connection(websocket):
-            connection = Connection(websocket)
-            proc = create_processor(args, connection, online, config)
-            await proc.process()
+            # Use WebSocketServerProcessor instead of Connection
+            processor = WebSocketServerProcessor(websocket, online, args.min_chunk_size)
+            
+            # If translation is enabled, we need to create a custom version
+            if args.translate:
+                # Get translation settings
+                settings = get_translation_settings(args, config)
+                
+                # Override the processor's send_result method to handle translation
+                original_send_result = processor.send_result
+                
+                from server_processors import process_translation
+                
+                translation_buffer = []
+                last_translation_time = time.time()
+                
+                async def translated_send_result(transcript):
+                    if transcript:
+                        formatted = processor.format_output_transcript(transcript)
+                        if formatted:
+                            # Send original transcript
+                            await processor.connection.send(formatted)
+                            
+                            # Handle translation logic
+                            parts = formatted.split(' ', 2)
+                            if len(parts) >= 3:
+                                text = parts[2]
+                                process_translation(
+                                    processor.connection,
+                                    text,
+                                    translation_buffer,
+                                    last_translation_time,
+                                    settings['target_language'],
+                                    settings['model'],
+                                    settings['provider'],
+                                    settings['interval'],
+                                    settings['max_buffer_time'],
+                                    settings['min_text_length'],
+                                    settings['inactivity_timeout']
+                                )
+                
+                processor.send_result = translated_send_result
+            
+            # Process connection
+            await processor.process_async()
             
         server.run(handle_connection)
     else:

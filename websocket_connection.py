@@ -48,17 +48,23 @@ class WebSocketClientConnection:
             # Receive message from WebSocket
             message = await self.websocket.recv()
             
-            # Check if the message is a JSON object with audio data
+            # First check if the message is binary data
+            if isinstance(message, bytes):
+                return message
+                
+            # If it's a string, check if it's JSON with audio data
             try:
                 data = json.loads(message)
                 if 'audio' in data:
                     # Decode base64 audio
                     return base64.b64decode(data['audio'])
+                return b''  # No audio data in the JSON
             except json.JSONDecodeError:
-                # If not JSON, assume raw binary data
-                return message
+                # If not valid JSON and not binary, it could be a different format
+                # Return empty to avoid processing invalid data
+                logger.warning("Received message is neither binary nor valid JSON")
+                return b''
                 
-            return b''
         except websockets.exceptions.ConnectionClosed:
             return b''
     
