@@ -7,7 +7,8 @@
     "tabCapture",
     "activeTab",
     "storage",
-    "scripting"
+    "scripting",
+    "offscreen"
   ],
   "host_permissions": [
     "ws://*/*",

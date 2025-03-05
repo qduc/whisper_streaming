@@ -1,4 +1,3 @@
-import { processAudio } from './audioProcessor.js';
 import { WebSocketClient } from './websocketClient.js';
 
 // Default connection settings
@@ -9,8 +8,6 @@ let defaultSettings = {
 };
 
 // Global variables
-let mediaStream = null;
-let audioContext = null;
 let websocket = null;
 let isTranscribing = false;
 let currentTabId = null;
@@ -21,6 +18,26 @@ chrome.storage.sync.get('settings', (data) => {
     defaultSettings = { ...defaultSettings, ...data.settings };
   }
 });
+
+// Check if offscreen document exists
+async function hasOffscreenDocument() {
+  const existingContexts = await chrome.runtime.getContexts({
+    contextTypes: ['OFFSCREEN_DOCUMENT'],
+    documentUrls: ['offscreen.html']
+  });
+  return existingContexts.length > 0;
+}
+
+// Create offscreen document if needed
+async function setupOffscreenDocument() {
+  if (await hasOffscreenDocument()) return;
+  
+  await chrome.offscreen.createDocument({
+    url: 'offscreen.html',
+    reasons: ['USER_MEDIA'],
+    justification: 'Needed to access tab capture API'
+  });
+}
 
 // Listen for messages from popup or content script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -40,6 +57,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ isTranscribing });
     return true;
   }
+  // Handle messages from offscreen document
+  else if (message.action === 'captureStarted') {
+    handleCaptureStarted(message.tabId, message.settings);
+  }
+  else if (message.action === 'audioChunk') {
+    handleAudioChunk(message.audioData);
+  }
+  else if (message.action === 'captureStopped' || message.action === 'streamEnded') {
+    if (isTranscribing) {
+      stopTranscription().catch(console.error);
+    }
+  }
 });
 
 // Start the transcription process
@@ -57,33 +86,9 @@ async function startTranscription(settings) {
     
     currentTabId = tabs[0].id;
     
-    // Request tab audio stream
-    const stream = await chrome.tabCapture.capture({
-      audio: true,
-      video: false,
-      audioConstraints: {
-        mandatory: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
-        }
-      }
-    });
-    
-    if (!stream) {
-      throw new Error('Failed to capture tab audio');
-    }
-    
-    mediaStream = stream;
-    
     // Create WebSocket connection
     websocket = new WebSocketClient(settings.serverUrl);
-    
     await websocket.connect();
-    
-    // Setup audio context and processing
-    audioContext = new AudioContext();
-    await processAudio(mediaStream, audioContext, websocket);
     
     // Set up message handler for transcriptions
     websocket.onMessage((data) => {
@@ -91,10 +96,20 @@ async function startTranscription(settings) {
       chrome.tabs.sendMessage(currentTabId, {
         action: 'updateTranscription',
         text: data.text,
-        isFinal: data.isFinal || false, // Assuming isFinal is not provided by the server
+        isFinal: data.isFinal || false,
         start_timestamp: data.start_timestamp,
         end_timestamp: data.end_timestamp
       });
+    });
+    
+    // Setup offscreen document to handle tab capture
+    await setupOffscreenDocument();
+    
+    // Request the offscreen document to start capturing
+    chrome.runtime.sendMessage({
+      action: 'startCapture',
+      tabId: currentTabId,
+      settings: settings
     });
     
     // Notify content script to show overlay
@@ -103,43 +118,49 @@ async function startTranscription(settings) {
       settings: settings
     });
     
-    isTranscribing = true;
-    
-    // Update popup if it's open
-    chrome.runtime.sendMessage({
-      action: 'statusUpdate',
-      status: 'listening'
-    }).catch(() => {
-      // Popup might be closed, ignore error
-    });
-    
   } catch (error) {
     console.error('Error starting transcription:', error);
-    isTranscribing = false;
     throw error;
   }
+}
+
+// Handle successful capture start
+function handleCaptureStarted(tabId, settings) {
+  isTranscribing = true;
+  
+  // Update popup if it's open
+  chrome.runtime.sendMessage({
+    action: 'statusUpdate',
+    status: 'listening'
+  }).catch(() => {
+    // Popup might be closed, ignore error
+  });
+}
+
+// Handle audio chunks from offscreen document
+function handleAudioChunk(audioData) {
+  if (!isTranscribing || !websocket) return;
+  
+  // Convert array back to Int16Array
+  const int16Data = new Int16Array(audioData);
+  
+  // Send to WebSocket
+  websocket.sendAudio(int16Data);
 }
 
 // Stop the transcription process
 async function stopTranscription() {
   isTranscribing = false;
   
+  // Tell offscreen document to stop capturing
+  chrome.runtime.sendMessage({
+    action: 'stopCapture'
+  }).catch(console.error);
+  
   // Stop WebSocket
   if (websocket) {
     await websocket.disconnect();
     websocket = null;
-  }
-  
-  // Stop media stream
-  if (mediaStream) {
-    mediaStream.getTracks().forEach(track => track.stop());
-    mediaStream = null;
-  }
-  
-  // Close audio context
-  if (audioContext) {
-    await audioContext.close();
-    audioContext = null;
   }
   
   // Hide overlay in content script
@@ -158,6 +179,16 @@ async function stopTranscription() {
   }).catch(() => {
     // Popup might be closed, ignore error
   });
+  
+  // Close offscreen document if it exists
+  try {
+    const hasOffscreen = await hasOffscreenDocument();
+    if (hasOffscreen) {
+      await chrome.offscreen.closeDocument();
+    }
+  } catch (error) {
+    console.error('Error closing offscreen document:', error);
+  }
 }
 
 // Clean up when tab is closed

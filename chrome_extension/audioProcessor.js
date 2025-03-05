@@ -138,3 +138,15 @@ function floatTo16BitPCM(float32Array) {
   
   return int16Array;
 }
+
+// Add this new function export for the offscreen document
+export function processAudioChunk(audioData, sampleRate) {
+  // Resample if needed
+  const needsResampling = sampleRate !== 16000;
+  const processedData = needsResampling ? 
+    resampleAudio(audioData, sampleRate, 16000) : 
+    audioData;
+  
+  // Convert to Int16Array
+  return floatTo16BitPCM(processedData);
+}
