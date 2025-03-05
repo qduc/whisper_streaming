@@ -109,7 +109,7 @@ function createOverlay() {
     bottom: 10%;
     left: 50%;
     transform: translateX(-50%);
-    width: 60%;  /* Wider to accommodate more text */
+    min-width: 40%;  /* Wider to accommodate more text */
     background-color: rgba(0, 0, 0, 0.7);
     color: white;
     z-index: 10000;
@@ -248,6 +248,8 @@ function hideOverlay() {
   if (!overlay) return;
   overlay.style.display = 'none';
   isVisible = false;
+  textBuffer = [];
+  updateTextDisplay();
 }
 
 function applySettings() {

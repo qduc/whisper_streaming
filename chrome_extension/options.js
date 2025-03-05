@@ -6,9 +6,6 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('serverUrl').addEventListener('change', saveSettings);
   document.getElementById('textSize').addEventListener('change', saveSettings);
   document.getElementById('overlayOpacity').addEventListener('input', saveSettings);
-  document.getElementById('shortChunkThreshold').addEventListener('change', saveSettings);
-  document.getElementById('longChunkThreshold').addEventListener('change', saveSettings);
-  document.getElementById('maxLineLength').addEventListener('change', saveSettings);
   document.getElementById('numOfLines').addEventListener('change', saveSettings);
   document.getElementById('minLengthToDisplay').addEventListener('change', saveSettings);
   document.getElementById('maxIdleTime').addEventListener('change', saveSettings);
@@ -33,18 +30,6 @@ function loadSavedSettings() {
       if (data.settings.overlayOpacity !== undefined) {
         document.getElementById('overlayOpacity').value = data.settings.overlayOpacity * 100;
         document.getElementById('opacityValue').textContent = Math.round(data.settings.overlayOpacity * 100) + '%';
-      }
-      
-      if (data.settings.shortChunkThreshold !== undefined) {
-        document.getElementById('shortChunkThreshold').value = data.settings.shortChunkThreshold;
-      }
-      
-      if (data.settings.longChunkThreshold !== undefined) {
-        document.getElementById('longChunkThreshold').value = data.settings.longChunkThreshold;
-      }
-      
-      if (data.settings.maxLineLength !== undefined) {
-        document.getElementById('maxLineLength').value = data.settings.maxLineLength;
       }
       
       if (data.settings.numOfLines !== undefined) {
@@ -76,9 +61,6 @@ function saveSettings() {
   const settings = {
     textSize: document.getElementById('textSize').value,
     overlayOpacity: document.getElementById('overlayOpacity').value / 100,
-    shortChunkThreshold: parseInt(document.getElementById('shortChunkThreshold').value),
-    longChunkThreshold: parseInt(document.getElementById('longChunkThreshold').value),
-    maxLineLength: parseInt(document.getElementById('maxLineLength').value),
     numOfLines: parseInt(document.getElementById('numOfLines').value),
     minLengthToDisplay: parseInt(document.getElementById('minLengthToDisplay').value),
     maxIdleTime: parseFloat(document.getElementById('maxIdleTime').value)
@@ -108,27 +90,60 @@ function saveSettings() {
 
 function testConnection() {
   const serverUrl = document.getElementById('serverUrl').value;
-  const testUrl = serverUrl.replace(/\/$/, '') + '/health';
   const statusElem = document.getElementById('connectionStatus');
   
   statusElem.textContent = 'Testing connection...';
   statusElem.style.color = 'blue';
   
-  fetch(testUrl)
-    .then(response => {
-      if (response.ok) {
-        return response.json();
+  let socket;
+  let connectionTimeout;
+  
+  try {
+    // Create WebSocket connection
+    socket = new WebSocket(serverUrl);
+    
+    // Set timeout for connection
+    connectionTimeout = setTimeout(() => {
+      if (socket && socket.readyState !== WebSocket.OPEN) {
+        socket.close();
+        statusElem.textContent = 'Connection timed out after 5 seconds';
+        statusElem.style.color = 'red';
       }
-      throw new Error(`HTTP error! Status: ${response.status}`);
-    })
-    .then(data => {
-      statusElem.textContent = 'Connection successful!';
+    }, 5000);
+    
+    // Connection successful
+    socket.onopen = () => {
+      clearTimeout(connectionTimeout);
+      statusElem.textContent = 'WebSocket connection successful!';
       statusElem.style.color = 'green';
-      console.log('Server response:', data);
-    })
-    .catch(error => {
-      statusElem.textContent = `Connection failed: ${error.message}`;
+      
+      // Close the socket after successful test
+      setTimeout(() => {
+        socket.close(1000, 'Test connection completed');
+      }, 1000);
+    };
+    
+    // Connection error
+    socket.onerror = (error) => {
+      clearTimeout(connectionTimeout);
+      statusElem.textContent = 'Connection failed: Could not connect to server';
       statusElem.style.color = 'red';
-      console.error('Connection test error:', error);
-    });
+      console.error('WebSocket test error:', error);
+    };
+    
+    // Connection closed
+    socket.onclose = (event) => {
+      // Only show closed message if it wasn't already successful
+      if (statusElem.textContent !== 'WebSocket connection successful!') {
+        statusElem.textContent = `Connection closed: ${event.code} ${event.reason || 'No reason provided'}`;
+        statusElem.style.color = 'red';
+      }
+    };
+    
+  } catch (error) {
+    clearTimeout(connectionTimeout);
+    statusElem.textContent = `Connection error: ${error.message}`;
+    statusElem.style.color = 'red';
+    console.error('WebSocket creation error:', error);
+  }
 }
