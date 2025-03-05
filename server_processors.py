@@ -3,6 +3,7 @@ import sys
 import logging
 import time
 import json
+import asyncio
 from server_base import BaseServerProcessor
 from translation_utils import TranslationManager
 
@@ -75,13 +76,17 @@ def process_translation(connection, text, text_buffer, last_translation_time,
             # Use a special format that can be parsed by the client
             msg = f"{combined_text} (translation) {translated_text}"
             
+            async def send_async():
+                try:
+                    await connection.send(msg)
+                except Exception as e:
+                    logger.error(f"Error in async send: {e}")
+            
             # Make this work with both websocket and TCP connections
-            if hasattr(connection, 'send'):
-                connection.send(msg)
+            if hasattr(connection, 'websocket'):
+                asyncio.create_task(send_async())
             else:
-                # Direct websocket connection
-                import asyncio
-                asyncio.create_task(connection.send(msg))
+                connection.send(msg)
                 
         except Exception as e:
             logger.error(f"Error sending translation: {e}")
@@ -95,6 +100,13 @@ class ServerProcessor(BaseServerProcessor):
     
     def __init__(self, connection, online_asr_proc, min_chunk):
         super().__init__(connection, online_asr_proc, min_chunk)
+
+    async def send_websocket(self, msg):
+        """Helper method to send websocket messages asynchronously"""
+        if hasattr(self.connection, 'websocket'):
+            await self.connection.send(msg)
+        else:
+            self.connection.send(msg)
 
 class TranslatedServerProcessor(BaseServerProcessor):
     """Server processor that adds real-time translation capabilities"""
@@ -124,6 +136,13 @@ class TranslatedServerProcessor(BaseServerProcessor):
         
         # Check if connection is WebSocket
         self.is_websocket = hasattr(connection, 'websocket') if connection else False
+
+    async def send_websocket(self, msg):
+        """Helper method to send websocket messages asynchronously"""
+        if hasattr(self.connection, 'websocket'):
+            await self.connection.send(msg)
+        else:
+            self.connection.send(msg)
         
     def should_translate_buffer(self):
         """Determine if we should translate the current buffer"""
@@ -219,7 +238,7 @@ class TranslatedServerProcessor(BaseServerProcessor):
         
         return results
     
-    def send_result(self, o):
+    async def send_result(self, o):
         """Override to handle translation"""
         if o[0] is not None:
             beg, end = o[0]*1000, o[1]*1000
@@ -240,7 +259,7 @@ class TranslatedServerProcessor(BaseServerProcessor):
             
             # Format for sending to client
             msg = f"{beg} {end} {text}"
-            self.connection.send(msg)
+            await self.send_websocket(msg)
             
             # Check if we should translate now
             if self.should_translate_buffer():
@@ -259,17 +278,16 @@ class TranslatedServerProcessor(BaseServerProcessor):
                     # Format translation message differently for WebSocket vs TCP
                     if hasattr(self.connection, 'websocket'):
                         # For WebSocket, mark the message as containing a translation
-                        # The WebSocketClientConnection will parse this format and convert to JSON
                         msg = f"{t_beg} {t_end} {combined_text} (translation) {translated_text}"
                     else:
                         # For TCP, keep the original format
                         msg = f"{t_beg} {t_end} {translated_text}"
                         
-                    self.connection.send(msg)
+                    await self.send_websocket(msg)
         else:
             logger.debug("No text in this segment")
     
-    def check_inactivity_timeout(self):
+    async def check_inactivity_timeout(self):
         """Check if we should translate the buffer due to inactivity"""
         if self.text_buffer and (time.time() - self.last_text_time) > self.inactivity_timeout:
             translated_segments = self.translate_buffer()
@@ -287,14 +305,14 @@ class TranslatedServerProcessor(BaseServerProcessor):
                         # For TCP, keep the original format
                         msg = f"{t_beg} {t_end} {translated_text}"
                         
-                    self.connection.send(msg)
+                    await self.send_websocket(msg)
                 except BrokenPipeError:
                     logger.info("broken pipe sending timeout buffer -- connection closed")
                     break
             return True
         return False
             
-    def process(self):
+    async def process(self):
         """Override to handle final translation buffer and periodic timeout checks"""
         self.online_asr_proc.init()
         try:
@@ -307,7 +325,7 @@ class TranslatedServerProcessor(BaseServerProcessor):
                 a = self.receive_audio_chunk()
                 
                 # Check for inactivity timeout while waiting for audio
-                if self.check_inactivity_timeout() and a is None:
+                if await self.check_inactivity_timeout() and a is None:
                     # If we've handled timeout and there's no more audio, we can break
                     break
                     
@@ -317,7 +335,7 @@ class TranslatedServerProcessor(BaseServerProcessor):
                 self.online_asr_proc.insert_audio_chunk(a)
                 o = self.online_asr_proc.process_iter()
                 try:
-                    self.send_result(o)
+                    await self.send_result(o)
                 except BrokenPipeError:
                     logger.info("broken pipe -- connection closed?")
                     break
@@ -339,7 +357,7 @@ class TranslatedServerProcessor(BaseServerProcessor):
                             # For TCP, keep the original format
                             msg = f"{t_beg} {t_end} {translated_text}"
                             
-                        self.connection.send(msg)
+                        await self.send_websocket(msg)
                     except BrokenPipeError:
                         logger.info("broken pipe sending final buffer -- connection closed")
                         break
