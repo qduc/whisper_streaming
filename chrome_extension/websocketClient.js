@@ -74,7 +74,23 @@ export class WebSocketClient {
       const message = JSON.parse(data);
       
       if (this.messageHandler) {
-        this.messageHandler(message);
+        if (message.type === 'transcription') {
+          this.messageHandler({
+            text: message.text,
+            start_timestamp: message.start,
+            end_timestamp: message.end,
+            isFinal: false
+          });
+        } else if (message.type === 'translation') {
+          this.messageHandler({
+            text: message.translation,
+            originalText: message.original,
+            start_timestamp: message.start,
+            end_timestamp: message.end,
+            isTranslation: true,
+            isFinal: true
+          });
+        }
       }
     } catch (error) {
       console.error('Error parsing WebSocket message:', error);

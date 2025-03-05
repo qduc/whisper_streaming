@@ -67,23 +67,29 @@ class WebSocketClientConnection:
                 
         except websockets.exceptions.ConnectionClosed:
             return b''
-    
+            
     async def send(self, message):
         """Send response back to the client"""
-        # Parse the message format: "beg_time end_time text"
-        parts = message.split(' ', 2)
-        if len(parts) >= 3:
-            beg_time, end_time, text = parts
-            response = {
-                "text": text,
-                "start_timestamp": float(beg_time),
-                "end_timestamp": float(end_time)
-            }
-        else:
-            # Handle case where message format is different
-            response = {"text": message}
-        
-        await self.websocket.send(json.dumps(response))
+        try:
+            # # Parse the message format: "beg_time end_time text"
+            # print(message)
+            # parts = message.split(' ', 2)
+            # if len(parts) >= 3:
+            #     beg_time, end_time, text = parts
+            #     response = {
+            #         "text": text,
+            #         "start_timestamp": float(beg_time),
+            #         "end_timestamp": float(end_time)
+            #     }
+            # else:
+            #     # Handle case where message format is different
+            #     response = {"text": message}
+            
+            await self.websocket.send(message)
+        except websockets.exceptions.ConnectionClosed:
+            logger.warning("Unable to send message - connection closed")
+        except Exception as e:
+            logger.error(f"Error sending message: {e}")
 
 class WebSocketServerProcessor(BaseServerProcessor):
     """WebSocket implementation of the server processor"""

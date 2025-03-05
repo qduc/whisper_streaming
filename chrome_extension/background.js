@@ -140,10 +140,7 @@ async function startTranscription(settings) {
       // Forward transcription to content script in the active tab
       chrome.tabs.sendMessage(currentTabId, {
         action: 'updateTranscription',
-        text: data.text,
-        isFinal: data.isFinal || false,
-        start_timestamp: data.start_timestamp,
-        end_timestamp: data.end_timestamp
+        ...data  // This spreads all the JSON message fields
       });
     });
     

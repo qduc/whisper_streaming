@@ -33,7 +33,7 @@ function initialize() {
     
     try {
       if (message.action === 'updateTranscription') {
-        updateTranscriptionText(message.text);
+        updateTranscriptionText(message);
       }
       else if (message.action === 'showOverlay') {
         console.log('Show overlay command received');
@@ -148,7 +148,7 @@ function createOverlay() {
   document.body.appendChild(overlay);
 }
 
-function updateTranscriptionText(text) {
+function updateTranscriptionText(message) {
   if (!textContainer) {
     console.error('Text container not found, recreating overlay');
     createOverlay();
@@ -160,18 +160,23 @@ function updateTranscriptionText(text) {
   if (updateTimer) {
     clearTimeout(updateTimer);
   }
-  
-  if (text === null || text === undefined || text.trim() === '') {
-    // If no text is provided, just handle as idle time passing
-    text = '';
-  } else {
-    text = text.trim();
-    // Append new text to our current accumulating text
-    currentText += (currentText ? ' ' : '') + text;
+
+  let text = '';
+  if (message.text) {
+    text = message.text.trim();
+    
+    // If this is a translation, format it differently
+    if (message.isTranslation) {
+      currentText = `${message.originalText}\n[Translation] ${text}`;
+    } else {
+      // Append new text to our current accumulating text
+      currentText += (currentText ? ' ' : '') + text;
+    }
   }
-  
+
   // Check if we should update the display based on conditions
   const shouldUpdateDisplay = 
+    message.isFinal || // Always update for translations or final segments
     currentText.length >= currentSettings.minLengthToDisplay || 
     (now - lastUpdateTime > currentSettings.maxIdleTime * 1000 && currentText.trim() !== '');
   
@@ -185,8 +190,10 @@ function updateTranscriptionText(text) {
     // Update the display
     updateTextDisplay();
     
-    // Reset the current text accumulation
-    currentText = '';
+    // Reset the current text accumulation if not a translation
+    if (!message.isTranslation) {
+      currentText = '';
+    }
     lastUpdateTime = now;
   } else {
     // Set a timer to check again after max idle time
