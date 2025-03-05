@@ -16,6 +16,8 @@ function initialize() {
   
   // Listen for messages from background script
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    console.log('Received message:', message);
+    
     if (message.action === 'updateTranscription') {
       updateTranscriptionText(message.text, message.isFinal);
     }
@@ -48,13 +50,12 @@ function createOverlay() {
     padding: 15px;
     border-radius: 8px;
     font-family: Arial, sans-serif;
-    display: flex;
+    display: none;  /* Initially hidden but will be changed to flex when shown */
     flex-direction: column;
     overflow: hidden;
     opacity: 0.8;
     transition: opacity 0.3s ease;
     pointer-events: none;
-    display: none;
   `;
   
   // Create container for transcription text
@@ -80,11 +81,16 @@ function updateTranscriptionText(text, isFinal) {
   
   // Scroll to the bottom if content overflows
   textContainer.scrollTop = textContainer.scrollHeight;
+  
+  // Ensure overlay is visible whenever we get transcription updates
+  if (!isVisible) {
+    showOverlay();
+  }
 }
 
 function showOverlay() {
   if (!overlay) return;
-  overlay.style.display = 'block';
+  overlay.style.display = 'flex';  // Change to flex instead of block
   isVisible = true;
 }
 
@@ -114,4 +120,12 @@ function applySettings() {
   
   // Apply opacity
   overlay.style.opacity = currentSettings.overlayOpacity || 0.8;
+}
+
+function testOverlay() {
+  console.log('Testing overlay visibility...');
+  showOverlay();
+  updateTranscriptionText('This is a test of the whisper overlay system.');
+  console.log('Overlay visible state:', isVisible);
+  console.log('Overlay display style:', overlay.style.display);
 }

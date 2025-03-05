@@ -21,35 +21,65 @@ chrome.storage.sync.get('settings', (data) => {
 
 // Check if offscreen document exists
 async function hasOffscreenDocument() {
-  const existingContexts = await chrome.runtime.getContexts({
-    contextTypes: ['OFFSCREEN_DOCUMENT'],
-    documentUrls: ['offscreen.html']
-  });
-  return existingContexts.length > 0;
+  try {
+    const existingContexts = await chrome.runtime.getContexts({
+      contextTypes: ['OFFSCREEN_DOCUMENT'],
+      documentUrls: ['offscreen.html']
+    });
+    return existingContexts.length > 0;
+  } catch (error) {
+    console.error('Error checking for offscreen document:', error);
+    return false;
+  }
 }
 
 // Create offscreen document if needed
 async function setupOffscreenDocument() {
-  // First check if document already exists
-  const exists = await hasOffscreenDocument();
-  
-  // If it exists, close it first to avoid the "Only a single offscreen document may be created" error
-  if (exists) {
-    try {
-      await chrome.offscreen.closeDocument();
-      // Small delay to ensure document is fully closed
-      await new Promise(resolve => setTimeout(resolve, 100));
-    } catch (error) {
-      console.error('Error closing existing offscreen document:', error);
+  try {
+    // First check if document already exists
+    const exists = await hasOffscreenDocument();
+    
+    // If it exists, don't create a new one
+    if (exists) {
+      console.log('Offscreen document already exists, reusing it');
+      return;
+    }
+    
+    // Wait to ensure any pending close operations have completed
+    await new Promise(resolve => setTimeout(resolve, 200));
+    
+    // Create a new document
+    await chrome.offscreen.createDocument({
+      url: 'offscreen.html',
+      reasons: ['USER_MEDIA'],
+      justification: 'Needed to access tab capture API'
+    });
+    
+    console.log('Offscreen document created successfully');
+  } catch (error) {
+    console.error('Error setting up offscreen document:', error);
+    
+    // If the error is about duplicate documents, try to close and retry once
+    if (error.message && error.message.includes('Only a single offscreen document may be created')) {
+      console.log('Attempting to recover by closing existing document');
+      try {
+        await chrome.offscreen.closeDocument();
+        // Wait before trying again
+        await new Promise(resolve => setTimeout(resolve, 300));
+        await chrome.offscreen.createDocument({
+          url: 'offscreen.html',
+          reasons: ['USER_MEDIA'],
+          justification: 'Needed to access tab capture API'
+        });
+        console.log('Successfully recovered and created offscreen document');
+      } catch (retryError) {
+        console.error('Recovery failed:', retryError);
+        throw retryError;
+      }
+    } else {
+      throw error;
     }
   }
-  
-  // Now create a new document
-  await chrome.offscreen.createDocument({
-    url: 'offscreen.html',
-    reasons: ['USER_MEDIA'],
-    justification: 'Needed to access tab capture API'
-  });
 }
 
 // Listen for messages from popup or content script

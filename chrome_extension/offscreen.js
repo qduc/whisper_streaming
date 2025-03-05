@@ -1,13 +1,27 @@
 let mediaStream = null;
 let audioContext = null;
 let websocket = null;
+let isCapturing = false;  // Track if capture is in progress
 
 // Listen for messages from the service worker
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'startCapture') {
-    startCapture(message.settings, message.tabId)
-      .then(() => sendResponse({ status: 'started' }))
-      .catch(error => sendResponse({ status: 'error', message: error.message }));
+    // Check if capture is already in progress
+    if (isCapturing) {
+      console.log('Capture already in progress, stopping previous capture first');
+      stopCapture().then(() => {
+        // Small delay to ensure resources are released
+        setTimeout(() => {
+          startCapture(message.settings, message.tabId)
+            .then(() => sendResponse({ status: 'started' }))
+            .catch(error => sendResponse({ status: 'error', message: error.message }));
+        }, 100);
+      });
+    } else {
+      startCapture(message.settings, message.tabId)
+        .then(() => sendResponse({ status: 'started' }))
+        .catch(error => sendResponse({ status: 'error', message: error.message }));
+    }
     return true; // Required for async sendResponse
   } 
   else if (message.action === 'stopCapture') {
@@ -20,6 +34,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 async function startCapture(settings, tabId) {
   try {
+    isCapturing = true;
     // Get the media stream ID for the tab
     // Note: In Chrome 116+, the streamId is now received directly from the service worker
     // instead of calling getMediaStreamId within the offscreen document
@@ -51,6 +66,7 @@ async function startCapture(settings, tabId) {
     });
     
     if (!stream) {
+      isCapturing = false;
       throw new Error('Failed to capture tab audio');
     }
     
@@ -67,6 +83,7 @@ async function startCapture(settings, tabId) {
     
     // Set up a listener for the stream ending
     stream.getAudioTracks()[0].onended = () => {
+      isCapturing = false;
       chrome.runtime.sendMessage({ action: 'streamEnded' });
     };
     
@@ -74,6 +91,7 @@ async function startCapture(settings, tabId) {
     await processAudio(stream, settings);
     
   } catch (error) {
+    isCapturing = false;
     console.error('Error in startCapture:', error);
     chrome.runtime.sendMessage({ 
       action: 'captureError', 
@@ -121,6 +139,9 @@ async function stopCapture() {
     await audioContext.close();
     audioContext = null;
   }
+  
+  // Reset capture state
+  isCapturing = false;
   
   // Notify background
   chrome.runtime.sendMessage({ action: 'captureStopped' });
