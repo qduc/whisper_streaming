@@ -217,6 +217,11 @@ class TranslatedServerProcessor(BaseServerProcessor):
         self.online_asr_proc.init()
         try:
             while True:
+                # Check if WebSocket connection is still open
+                if hasattr(self.connection, 'websocket') and self.connection.websocket.closed:
+                    logger.info("WebSocket connection closed gracefully")
+                    break
+
                 a = self.receive_audio_chunk()
                 
                 # Check for inactivity timeout while waiting for audio
