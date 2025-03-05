@@ -8,6 +8,88 @@ from translation_utils import TranslationManager
 
 logger = logging.getLogger(__name__)
 
+# Add the new process_translation function here
+def process_translation(connection, text, text_buffer, last_translation_time,
+                      target_language='en', model="gemini-2.0-flash", 
+                      provider='gemini', interval=4.0, max_buffer_time=5.0,
+                      min_text_length=20, inactivity_timeout=2.0):
+    """
+    Process text for translation in the websocket server context
+    
+    Args:
+        connection: The WebSocket connection object
+        text: New text to be considered for translation
+        text_buffer: List to store accumulated text
+        last_translation_time: Last time translation was performed (pass by reference)
+        target_language: Target language code for translation
+        model: Model to use for translation
+        provider: Translation provider ('gemini' or 'openai')
+        interval: Minimum time between translation calls
+        max_buffer_time: Maximum time to buffer text before forcing translation
+        min_text_length: Minimum text length to trigger translation
+        inactivity_timeout: Seconds of inactivity before translating buffer
+    """
+    # Add text to buffer
+    text_buffer.append(text)
+    current_time = time.time()
+    combined_text = " ".join(text_buffer)
+    
+    # Create translation manager as needed
+    translation_manager = TranslationManager(
+        target_language=target_language,
+        model=model,
+        translation_provider=provider
+    )
+    
+    # Check if we should translate now
+    time_since_last = current_time - last_translation_time
+    should_translate = False
+    
+    # Check for minimum text length
+    if len(combined_text) < min_text_length:
+        return
+    
+    # Case 1: Buffer has been accumulating for too long
+    if time_since_last > max_buffer_time:
+        should_translate = True
+        
+    # Case 2: Enough time has passed AND we have minimum text to translate
+    elif time_since_last > interval:
+        # Check if the buffer ends with a sentence terminator
+        if translation_manager.is_sentence_end(combined_text):
+            should_translate = True
+        
+        # Check if we can at least split at a sentence boundary
+        sentence_part, _ = translation_manager.split_at_sentence_end(combined_text)
+        if sentence_part and len(sentence_part) >= min_text_length:
+            # We have at least one complete sentence that meets minimum length
+            should_translate = True
+    
+    # Perform translation if needed
+    if should_translate:
+        translated_text = translation_manager.translate_text(combined_text)
+        
+        # Format and send the translated message
+        try:
+            # For WebSocket, mark the message as containing a translation
+            # Use a special format that can be parsed by the client
+            msg = f"{combined_text} (translation) {translated_text}"
+            
+            # Make this work with both websocket and TCP connections
+            if hasattr(connection, 'send'):
+                connection.send(msg)
+            else:
+                # Direct websocket connection
+                import asyncio
+                asyncio.create_task(connection.send(msg))
+                
+        except Exception as e:
+            logger.error(f"Error sending translation: {e}")
+        
+        # Clear buffer and update translation time
+        text_buffer.clear()
+        last_translation_time = current_time
+
 class ServerProcessor(BaseServerProcessor):
     """Standard server processor that handles audio transcription without translation"""
     
