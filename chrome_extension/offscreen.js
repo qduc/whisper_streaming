@@ -59,8 +59,9 @@ async function startCapture(settings, tabId) {
       audio: {
         mandatory: {
           chromeMediaSource: 'tab',
-          chromeMediaSourceId: streamId
-        }
+          chromeMediaSourceId: streamId,
+          echoCancellation: false
+        },
       },
       video: false
     });
@@ -105,6 +106,7 @@ async function processAudio(stream, settings) {
   // Create audio context
   audioContext = new AudioContext();
   const source = audioContext.createMediaStreamSource(stream);
+  source.connect(audioContext.destination);
   const processor = audioContext.createScriptProcessor(4096, 1, 1);
   
   // Import the processing function from audioProcessor.js
@@ -112,7 +114,15 @@ async function processAudio(stream, settings) {
   
   // Connect source to processor
   source.connect(processor);
+  
+  // Don't connect processor to destination - this prevents audio sink/output capture
   processor.connect(audioContext.destination);
+  
+  // Instead, create a silent node to keep the audio graph alive
+  // const silentNode = audioContext.createGain();
+  // silentNode.gain.value = 0;
+  // processor.connect(silentNode);
+  // silentNode.connect(audioContext.destination);
   
   // Define processing function
   processor.onaudioprocess = (e) => {

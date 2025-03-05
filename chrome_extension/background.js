@@ -208,10 +208,18 @@ function handleAudioChunk(audioData) {
 async function stopTranscription() {
   isTranscribing = false;
   
-  // Tell offscreen document to stop capturing
-  chrome.runtime.sendMessage({
-    action: 'stopCapture'
-  }).catch(console.error);
+  // Tell offscreen document to stop capturing and wait for response
+  try {
+    const response = await chrome.runtime.sendMessage({
+      action: 'stopCapture'
+    });
+    
+    // Wait a small delay to ensure offscreen cleanup is completed
+    await new Promise(resolve => setTimeout(resolve, 100));
+  } catch (error) {
+    console.error('Error stopping capture:', error);
+    // Continue with cleanup even if there's an error
+  }
   
   // Stop WebSocket
   if (websocket) {
