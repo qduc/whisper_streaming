@@ -91,8 +91,9 @@ async function startTranscription(settings) {
       chrome.tabs.sendMessage(currentTabId, {
         action: 'updateTranscription',
         text: data.text,
-        isFinal: data.isFinal,
-        translation: data.translation
+        isFinal: data.isFinal || false, // Assuming isFinal is not provided by the server
+        start_timestamp: data.start_timestamp,
+        end_timestamp: data.end_timestamp
       });
     });
     

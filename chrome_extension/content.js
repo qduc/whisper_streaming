@@ -1,7 +1,6 @@
 // Global variables
 let overlay = null;
 let textContainer = null;
-let translationContainer = null;
 let isVisible = false;
 let currentSettings = {
   textSize: 'medium',
@@ -18,7 +17,7 @@ function initialize() {
   // Listen for messages from background script
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.action === 'updateTranscription') {
-      updateTranscriptionText(message.text, message.isFinal, message.translation);
+      updateTranscriptionText(message.text, message.isFinal);
     }
     else if (message.action === 'showOverlay') {
       if (message.settings) {
@@ -62,53 +61,25 @@ function createOverlay() {
   textContainer = document.createElement('div');
   textContainer.id = 'whisper-transcription-text';
   textContainer.style.cssText = `
-    margin-bottom: 10px;
     overflow-y: auto;
     max-height: 100%;
     font-size: 18px;
     line-height: 1.4;
   `;
   
-  // Create container for translation text (if available)
-  translationContainer = document.createElement('div');
-  translationContainer.id = 'whisper-translation-text';
-  translationContainer.style.cssText = `
-    font-style: italic;
-    border-top: 1px solid rgba(255, 255, 255, 0.3);
-    padding-top: 10px;
-    margin-top: 10px;
-    overflow-y: auto;
-    max-height: 100%;
-    font-size: 16px;
-    color: #ccccff;
-    display: none;
-  `;
-  
   // Append elements to the document
   overlay.appendChild(textContainer);
-  overlay.appendChild(translationContainer);
   document.body.appendChild(overlay);
 }
 
-function updateTranscriptionText(text, isFinal, translation) {
+function updateTranscriptionText(text, isFinal) {
   if (!textContainer) return;
   
   // Update main transcription text
   textContainer.textContent = text || 'Listening...';
   
-  // If there's translation text, show the translation container and update it
-  if (translation) {
-    translationContainer.style.display = 'block';
-    translationContainer.textContent = translation;
-  } else {
-    translationContainer.style.display = 'none';
-  }
-  
   // Scroll to the bottom if content overflows
   textContainer.scrollTop = textContainer.scrollHeight;
-  if (translation) {
-    translationContainer.scrollTop = translationContainer.scrollHeight;
-  }
 }
 
 function showOverlay() {
@@ -124,7 +95,7 @@ function hideOverlay() {
 }
 
 function applySettings() {
-  if (!overlay || !textContainer || !translationContainer) return;
+  if (!overlay || !textContainer) return;
   
   // Apply text size
   let fontSize = '18px';
@@ -140,7 +111,6 @@ function applySettings() {
   }
   
   textContainer.style.fontSize = fontSize;
-  translationContainer.style.fontSize = (parseInt(fontSize) - 2) + 'px';
   
   // Apply opacity
   overlay.style.opacity = currentSettings.overlayOpacity || 0.8;
