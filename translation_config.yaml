@@ -1,7 +1,7 @@
 # Translation configuration settings
 translation:
   # Target language for translation (ISO language code)
-  target_language: "en"
+  target_language: "vi"
   
   # Translation provider settings
   provider: "gemini"
@@ -9,8 +9,8 @@ translation:
   
   # Translation timing parameters
   interval: 3.0      # Minimum time between translation API calls (seconds)
-  max_buffer_time: 10.0   # Maximum time to buffer text before forcing translation (seconds)
-  inactivity_timeout: 2.0  # Seconds of inactivity before translating remaining buffer
+  max_buffer_time: 6.0   # Maximum time to buffer text before forcing translation (seconds)
+  inactivity_timeout: 4.0  # Seconds of inactivity before translating remaining buffer
   
   # Text processing settings
-  min_text_length: 20      # Minimum text length to consider for translation (characters)
+  min_text_length: 15      # Minimum text length to consider for translation (characters)

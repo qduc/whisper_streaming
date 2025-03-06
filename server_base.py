@@ -5,6 +5,7 @@ import io
 import soundfile
 import librosa
 import numpy as np
+import json
 from line_packet import send_one_line, receive_lines
 
 logger = logging.getLogger(__name__)
@@ -97,11 +98,32 @@ class BaseServerProcessor:
             logger.debug("No text in this segment")
             return None
             
-    def send_result(self, o):
-        """Process and send the result to the client"""
-        msg = self.format_output_transcript(o)
-        if msg is not None:
-            self.connection.send(msg)
+    async def send_result(self, o):
+        """Process and send the result to the client in JSON format"""
+        if o[0] is not None:
+            beg, end = o[0]*1000, o[1]*1000
+            if self.last_end is not None:
+                beg = max(beg, self.last_end)
+            self.last_end = end
+            
+            # Log the transcript to console
+            text = o[2].replace("  ", " ")
+            print("%1.0f %1.0f %s" % (beg, end, text), flush=True, file=sys.stderr)
+            
+            # Format as JSON for all clients
+            msg = json.dumps({
+                "type": "transcription",
+                "start": beg,
+                "end": end,
+                "text": text
+            })
+            
+            if hasattr(self.connection, 'websocket'):
+                await self.connection.send(msg)
+            else:
+                self.connection.send(msg)
+        else:
+            logger.debug("No text in this segment")
             
     def process(self):
         """Main processing loop"""

@@ -106,6 +106,16 @@ class ServerProcessor(BaseServerProcessor):
 
     async def send_websocket(self, msg):
         """Helper method to send websocket messages asynchronously"""
+        # Format message as JSON
+        parts = msg.split(" ")
+        if len(parts) > 3:
+            beg, end, text = parts[:3], " ".join(parts[3:])
+            msg = json.dumps({
+                "type": "transcription",
+                "start": float(beg),
+                "end": float(end),
+                "text": text
+            })        
         if hasattr(self.connection, 'websocket'):
             await self.connection.send(msg)
         else:
@@ -283,6 +293,8 @@ class TranslatedServerProcessor(BaseServerProcessor):
                     translated_segments = self.translate_buffer()
                 
                 for t_beg, t_end, translated_text in translated_segments:
+                    # Log translated text
+                    print(f"{t_beg} {t_end} {translated_text}")
                     # Format translation message as JSON for WebSocket or TCP
                     msg = json.dumps({
                         "type": "translation",

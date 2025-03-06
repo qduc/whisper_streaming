@@ -99,11 +99,26 @@ class WebSocketServerProcessor(BaseServerProcessor):
         super().__init__(connection, online_asr_proc, min_chunk)
     
     async def send_result(self, transcript):
-        """Send transcription result to client"""
-        if transcript:
-            formatted_transcript = self.format_output_transcript(transcript)
-            if formatted_transcript:
-                await self.connection.send(formatted_transcript)
+        """Send transcription result to client as JSON"""
+        if transcript and transcript[0] is not None:
+            beg, end = transcript[0]*1000, transcript[1]*1000
+            if self.last_end is not None:
+                beg = max(beg, self.last_end)
+            self.last_end = end
+            
+            # Log the transcript to console
+            text = transcript[2].replace("  ", " ")
+            print("%1.0f %1.0f %s" % (beg, end, text), flush=True)
+            
+            # Format as JSON
+            message = json.dumps({
+                "type": "transcription",
+                "start": beg,
+                "end": end,
+                "text": text
+            })
+            
+            await self.connection.send(message)
     
     async def process_async(self):
         """Asynchronous processing loop"""
