@@ -3,6 +3,7 @@ import logging
 import openai
 import os
 import asyncio
+import yaml
 from collections import deque
 
 logger = logging.getLogger(__name__)
@@ -11,10 +12,23 @@ class TranslationManager:
     """Handles translation of text using various API providers"""
     
     def __init__(self, target_language='en', model="gemini-2.0-flash", translation_provider='gemini',
-                 history_size=4, max_history_tokens=200, use_history=True):
+                 history_size=4, max_history_tokens=200, use_history=True, config_path="translation_config.yaml"):
         self.target_language = target_language
         self.model = model
         self.translation_provider = translation_provider
+        self.config_path = config_path
+        
+        # Default system prompt
+        self.default_system_prompt = f"""Translate the following live transcription into {self.target_language}. Preserve accuracy and context. Output only the translated text without any formatting and (...) characters.
+
+**Example: (English to Vietnamese)**
+Input:
+Not only for gaming, RTX 4090 is also a powerful choice for content creators such as 3D video editing, AI programming or graphic design. Thanks to 24GB GDDR6X VRAM, heavy tasks such as image rendering or video editing can be done quickly.
+Output:
+Không chỉ dành cho gaming, RTX 4090 còn là một lựa chọn mạnh mẽ cho các nhà sáng tạo nội dung như dựng video 3D, lập trình AI hay thiết kế đồ họa. Nhờ bộ nhớ VRAM 24GB GDDR6X, các tác vụ nặng như render hình ảnh hay edit video đều có thể được thực hiện một cách nhanh chóng."""
+        
+        # Load system prompt from config if available
+        self.system_prompt = self._load_system_prompt()
         
         # Translation cache settings
         self.translation_cache = {}     # Simple cache for translations
@@ -35,6 +49,24 @@ class TranslationManager:
         self._translation_lock = asyncio.Lock()
         self._translation_in_progress = False
         
+    def _load_system_prompt(self):
+        """Load system prompt from config file or use the default one if not available"""
+        try:
+            if os.path.exists(self.config_path):
+                with open(self.config_path, 'r') as file:
+                    config = yaml.safe_load(file)
+                    
+                if config and 'translation' in config and 'system_prompt' in config['translation']:
+                    custom_prompt = config['translation']['system_prompt']
+                    if custom_prompt and custom_prompt.strip():
+                        logger.debug("Using custom system prompt from config")
+                        return custom_prompt.replace('{target_language}', self.target_language)
+        except Exception as e:
+            logger.error(f"Error loading system prompt from config: {e}")
+            
+        logger.debug("Using default system prompt")
+        return self.default_system_prompt
+        
     def is_sentence_end(self, text):
         """Check if text likely ends with a sentence terminator"""
         if not text:
@@ -44,15 +76,8 @@ class TranslationManager:
     def _prepare_messages_with_history(self, text):
         """Prepare messages array with history as user/assistant pairs"""
         # Start with system message
-        system_prompt = f"""Translate the following live transcription into {self.target_language}. Preserve accuracy and context. Output only the translated text without any formatting and (...) characters.
-
-**Example: (English to Vietnamese)**
-Input:
-Not only for gaming, RTX 4090 is also a powerful choice for content creators such as 3D video editing, AI programming or graphic design. Thanks to 24GB GDDR6X VRAM, heavy tasks such as image rendering or video editing can be done quickly.
-Output:
-Không chỉ dành cho gaming, RTX 4090 còn là một lựa chọn mạnh mẽ cho các nhà sáng tạo nội dung như dựng video 3D, lập trình AI hay thiết kế đồ họa. Nhờ bộ nhớ VRAM 24GB GDDR6X, các tác vụ nặng như render hình ảnh hay edit video đều có thể được thực hiện một cách nhanh chóng."""
         messages = [
-            {"role": "system", "content": system_prompt}
+            {"role": "system", "content": self.system_prompt}
         ]
         
         # Add history as user/assistant pairs if enabled
