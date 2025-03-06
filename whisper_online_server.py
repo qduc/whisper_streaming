@@ -6,8 +6,10 @@ import os
 import logging
 import socket
 import yaml
+import time
 from server_base import Connection
 from server_processors import ServerProcessor, TranslatedServerProcessor
+from translation_utils import TranslationManager
 
 logger = logging.getLogger(__name__)
 
@@ -186,6 +188,15 @@ def main():
                 translation_buffer = []
                 last_translation_time = time.time()
                 
+                # Initialize the TranslationManager instance immediately
+                # This ensures we only create one instance per connection
+                translation_manager = TranslationManager(
+                    target_language=settings['target_language'],
+                    model=settings['model'],
+                    translation_provider=settings['provider']
+                )
+                logger.info(f"Created TranslationManager for new connection: target={settings['target_language']}")
+                
                 async def translated_send_result(transcript):
                     if transcript:
                         formatted = processor.format_output_transcript(transcript)
@@ -197,7 +208,11 @@ def main():
                             parts = formatted.split(' ', 2)
                             if len(parts) >= 3:
                                 text = parts[2]
-                                process_translation(
+                                nonlocal translation_manager, last_translation_time, translation_buffer
+                                
+                                # Even if multiple transcripts arrive before a translation is complete,
+                                # they will be queued by the translation_manager's lock mechanism
+                                translation_manager = await process_translation(
                                     processor.connection,
                                     text,
                                     translation_buffer,
@@ -208,9 +223,10 @@ def main():
                                     settings['interval'],
                                     settings['max_buffer_time'],
                                     settings['min_text_length'],
-                                    settings['inactivity_timeout']
+                                    settings['inactivity_timeout'],
+                                    translation_manager  # Pass the existing instance
                                 )
-                
+                                
                 processor.send_result = translated_send_result
             
             # Process connection
