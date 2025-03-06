@@ -27,7 +27,7 @@ async def process_translation(connection, text, text_buffer, last_translation_ti
         provider: Translation provider ('gemini' or 'openai')
         interval: Minimum time between translation calls
         max_buffer_time: Maximum time to buffer text before forcing translation
-        min_text_length: Minimum text length to trigger translation
+        min_text_length: Minimum text length to trigger translation (will be adjusted based on language)
         inactivity_timeout: Seconds of inactivity before translating buffer
         translation_manager: Existing TranslationManager instance to reuse (created if None)
         
@@ -52,9 +52,35 @@ async def process_translation(connection, text, text_buffer, last_translation_ti
     time_since_last = current_time - last_translation_time
     should_translate = False
     
-    # Check for minimum text length
-    if len(combined_text) < min_text_length:
-        logger.debug(f"Text too short for translation ({len(combined_text)} chars < {min_text_length}), skipping")
+    # Calculate adaptive min_text_length based on translation history if available
+    adaptive_min_text_length = min_text_length
+    if hasattr(translation_manager, 'translation_history') and translation_manager.translation_history:
+        # Calculate the average character ratio from history (max of 10 most recent translations)
+        char_ratios = []
+        history_items = list(translation_manager.translation_history)[-10:]  # Use only recent history
+        
+        for source, translated in history_items:
+            if source and translated:  # Ensure we don't divide by zero
+                ratio = len(translated) / len(source)
+                char_ratios.append(ratio)
+        
+        if char_ratios:
+            avg_ratio = sum(char_ratios) / len(char_ratios)
+            
+            # Adjust min_text_length based on the ratio with limits
+            # Don't let it go below 25% or above 200% of original value
+            if avg_ratio > 0:
+                adjusted_length = int(min_text_length / avg_ratio)
+                # Apply limits to prevent extreme adjustments
+                min_adjusted = int(min_text_length * 0.25)  # Minimum 25% of original
+                max_adjusted = int(min_text_length * 2.0)   # Maximum 200% of original
+                
+                adaptive_min_text_length = max(min_adjusted, min(adjusted_length, max_adjusted))
+                logger.debug(f"Adjusted min_text_length to {adaptive_min_text_length} (original: {min_text_length}, ratio: {avg_ratio:.2f})")
+    
+    # Check for minimum text length (using the adaptive value)
+    if len(combined_text) < adaptive_min_text_length:
+        logger.debug(f"Text too short for translation ({len(combined_text)} chars < {adaptive_min_text_length}), skipping")
         return translation_manager
     
     # Case 1: Buffer has been accumulating for too long
@@ -71,7 +97,7 @@ async def process_translation(connection, text, text_buffer, last_translation_ti
         
         # Check if we can at least split at a sentence boundary
         sentence_part, _ = translation_manager.split_at_sentence_end(combined_text)
-        if sentence_part and len(sentence_part) >= min_text_length:
+        if sentence_part and len(sentence_part) >= adaptive_min_text_length:
             # We have at least one complete sentence that meets minimum length
             logger.debug(f"Complete sentence found that meets min length, translating")
             should_translate = True
@@ -171,6 +197,32 @@ class TranslatedServerProcessor(BaseServerProcessor):
         # Check if enough time has passed since last translation
         time_since_last = current_time - self.last_translation_time
         
+        # Calculate adaptive min_text_length based on translation history if available
+        adaptive_min_text_length = self.min_text_length
+        if hasattr(self.translation_manager, 'translation_history') and self.translation_manager.translation_history:
+            # Calculate the average character ratio from history (max of 10 most recent translations)
+            char_ratios = []
+            history_items = list(self.translation_manager.translation_history)[-10:]  # Use only recent history
+            
+            for source, translated in history_items:
+                if source and translated:  # Ensure we don't divide by zero
+                    ratio = len(translated) / len(source)
+                    char_ratios.append(ratio)
+            
+            if char_ratios:
+                avg_ratio = sum(char_ratios) / len(char_ratios)
+                
+                # Adjust min_text_length based on the ratio with limits
+                # Don't let it go below 25% or above 200% of original value
+                if avg_ratio > 0:
+                    adjusted_length = int(self.min_text_length / avg_ratio)
+                    # Apply limits to prevent extreme adjustments
+                    min_adjusted = int(self.min_text_length * 0.25)  # Minimum 25% of original
+                    max_adjusted = int(self.min_text_length * 2.0)   # Maximum 200% of original
+                    
+                    adaptive_min_text_length = max(min_adjusted, min(adjusted_length, max_adjusted))
+                    logger.debug(f"Adjusted min_text_length to {adaptive_min_text_length} (original: {self.min_text_length}, ratio: {avg_ratio:.2f})")
+        
         # Check for inactivity timeout - translate if no new text for a while and buffer not empty
         if self.text_buffer and (current_time - self.last_text_time) > self.inactivity_timeout:
             return True
@@ -180,7 +232,7 @@ class TranslatedServerProcessor(BaseServerProcessor):
             return True
             
         # Case 2: Enough time has passed AND we have minimum text to translate
-        if time_since_last > self.translation_interval and len("".join(self.text_buffer)) >= self.min_text_length:
+        if time_since_last > self.translation_interval and len("".join(self.text_buffer)) >= adaptive_min_text_length:
             # Check if the buffer ends with a sentence terminator
             combined_text = " ".join(self.text_buffer)
             if self.translation_manager.is_sentence_end(combined_text):
@@ -188,7 +240,7 @@ class TranslatedServerProcessor(BaseServerProcessor):
             
             # Check if we can at least split at a sentence boundary
             sentence_part, _ = self.translation_manager.split_at_sentence_end(combined_text)
-            if sentence_part and len(sentence_part) >= self.min_text_length:
+            if sentence_part and len(sentence_part) >= adaptive_min_text_length:
                 # We have at least one complete sentence that meets minimum length
                 return True
             
