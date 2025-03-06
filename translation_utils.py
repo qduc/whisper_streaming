@@ -44,46 +44,53 @@ class TranslationManager:
     def _prepare_messages_with_history(self, text):
         """Prepare messages array with history as user/assistant pairs"""
         # Start with system message
+        system_prompt = f"""Translate the following live transcription into {self.target_language}. Preserve accuracy and context. Output only the translated text without any formatting and (...) characters.
+
+**Example: (English to Vietnamese)**
+Input:
+Not only for gaming, RTX 4090 is also a powerful choice for content creators such as 3D video editing, AI programming or graphic design. Thanks to 24GB GDDR6X VRAM, heavy tasks such as image rendering or video editing can be done quickly.
+Output:
+Không chỉ dành cho gaming, RTX 4090 còn là một lựa chọn mạnh mẽ cho các nhà sáng tạo nội dung như dựng video 3D, lập trình AI hay thiết kế đồ họa. Nhờ bộ nhớ VRAM 24GB GDDR6X, các tác vụ nặng như render hình ảnh hay edit video đều có thể được thực hiện một cách nhanh chóng."""
         messages = [
-            {"role": "system", "content": f"Translate the following speech transcript to {self.target_language}. Output only the translated text without any explanations."}
+            {"role": "system", "content": system_prompt}
         ]
         
         # Add history as user/assistant pairs if enabled
         if self.use_history and self.translation_history:
-            print(f"History enabled. Current history size: {len(self.translation_history)}")
+            # print(f"History enabled. Current history size: {len(self.translation_history)}")
             total_chars = 0
             history_pairs = []
             
             # Process history from oldest to newest to maintain conversation flow
             history_list = list(self.translation_history)
-            print(f"Processing {len(history_list)} history items")
+            # print(f"Processing {len(history_list)} history items")
             
             for idx, (source, target) in enumerate(history_list):
                 # Rough estimation of token count
                 pair_chars = len(source) + len(target)
-                print(f"History item {idx}: source chars: {len(source)}, target chars: {len(target)}, total: {pair_chars}")
+                # print(f"History item {idx}: source chars: {len(source)}, target chars: {len(target)}, total: {pair_chars}")
                 
                 if total_chars + pair_chars > self.max_history_tokens * 4:
-                    print(f"History limit reached at item {idx}. Current chars: {total_chars}, limit: {self.max_history_tokens * 4}")
+                    # print(f"History limit reached at item {idx}. Current chars: {total_chars}, limit: {self.max_history_tokens * 4}")
                     break
                     
                 # Add this pair to our history
                 history_pairs.append((source, target))
                 total_chars += pair_chars
-                print(f"Added to history. Running total: {total_chars} chars")
+                # print(f"Added to history. Running total: {total_chars} chars")
             
-            print(f"Final history pairs to include: {len(history_pairs)}")
+            # print(f"Final history pairs to include: {len(history_pairs)}")
             # Add the history pairs to messages
             for source, target in history_pairs:
                 messages.append({"role": "user", "content": source})
                 messages.append({"role": "assistant", "content": target})
-        else:
-            print(f"History disabled or empty. use_history: {self.use_history}, history size: {len(self.translation_history) if self.translation_history else 0}")
+        # else:
+        #     print(f"History disabled or empty. use_history: {self.use_history}, history size: {len(self.translation_history) if self.translation_history else 0}")
         
         # Add the current text to translate
         messages.append({"role": "user", "content": text})
-        print(f"Final message count: {len(messages)}")
-        print(f"Prepared messages: {messages}")
+        # print(f"Final message count: {len(messages)}")
+        # print(f"Prepared messages: {messages}")
         return messages
     
     async def translate_text_async(self, text):
@@ -173,10 +180,9 @@ class TranslationManager:
                     del self.translation_cache[oldest]
             
             # Add to translation history
-            print(f"Before adding to history: history size={len(self.translation_history)}")
+            # print(f"Before adding to history: history size={len(self.translation_history)}")
             self.translation_history.append((text, translated))
-            print(f"After adding to history: history size={len(self.translation_history)}")
-            print(f"Latest history item: ({text[:30]}..., {translated[:30]}...)")
+            # print(f"After adding to history: history size={len(self.translation_history)}")
             
             self.translation_cache[text] = translated
             self.cache_queue.append(text)
