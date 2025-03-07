@@ -1,10 +1,13 @@
 import { WebSocketClient } from './websocketClient.js';
 
 // Default connection settings
-let defaultSettings = {
+const defaultSettings = {
   serverUrl: 'ws://localhost:43007',
   textSize: 'medium',
-  overlayOpacity: 0.8
+  overlayOpacity: 0.8,
+  numOfLines: 3,
+  minLengthToDisplay: 30,
+  maxIdleTime: 1.5
 };
 
 // Global variables
@@ -15,7 +18,8 @@ let currentTabId = null;
 // Initialize with stored settings or defaults
 chrome.storage.sync.get('settings', (data) => {
   if (data.settings) {
-    defaultSettings = { ...defaultSettings, ...data.settings };
+    // Update default settings with stored values while preserving defaults for any missing values
+    Object.assign(defaultSettings, data.settings);
   }
 });
 

@@ -15,14 +15,13 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function loadSavedSettings() {
-  chrome.storage.sync.get(['serverUrl', 'settings'], (data) => {
-    // Server URL
-    if (data.serverUrl) {
-      document.getElementById('serverUrl').value = data.serverUrl;
-    }
-    
-    // Other settings
+  chrome.storage.sync.get('settings', (data) => {
+    // Load all settings from the settings object
     if (data.settings) {
+      if (data.settings.serverUrl) {
+        document.getElementById('serverUrl').value = data.settings.serverUrl;
+      }
+      
       if (data.settings.textSize) {
         document.getElementById('textSize').value = data.settings.textSize;
       }
@@ -53,12 +52,9 @@ function loadSavedSettings() {
 }
 
 function saveSettings() {
-  // Save server URL
-  const serverUrl = document.getElementById('serverUrl').value;
-  chrome.storage.sync.set({ serverUrl });
-  
-  // Save other settings
+  // Save all settings in a single settings object
   const settings = {
+    serverUrl: document.getElementById('serverUrl').value,
     textSize: document.getElementById('textSize').value,
     overlayOpacity: document.getElementById('overlayOpacity').value / 100,
     numOfLines: parseInt(document.getElementById('numOfLines').value),

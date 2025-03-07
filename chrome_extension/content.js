@@ -167,7 +167,8 @@ function updateTranscriptionText(message) {
     
     // If this is a translation, format it differently
     if (message.isTranslation) {
-      currentText = `${message.originalText}\n[Translation] ${text}`;
+      currentText = text;
+      // currentText += (currentText ? ' ' : '') + text;
     } else {
       // Append new text to our current accumulating text
       currentText += (currentText ? ' ' : '') + text;
@@ -176,7 +177,7 @@ function updateTranscriptionText(message) {
 
   // Check if we should update the display based on conditions
   const shouldUpdateDisplay = 
-    message.isFinal || // Always update for translations or final segments
+    // message.isFinal || // Always update for translations or final segments
     currentText.length >= currentSettings.minLengthToDisplay || 
     (now - lastUpdateTime > currentSettings.maxIdleTime * 1000 && currentText.trim() !== '');
   
