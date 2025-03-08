@@ -10,7 +10,7 @@ let hideTimer = null;
 // Add drag-related variables
 let isDragging = false;
 let dragOffset = { x: 0, y: 0 };
-let overlayPosition = { left: '50%', top: '70%' }; // Store position as percentage
+let overlayPosition = { left: '50%', top: '80%' }; // Store position as percentage
 
 let currentSettings = {
   textSize: 'medium',
@@ -145,12 +145,16 @@ function createOverlay() {
     min-height: 20px;
     min-width: 200px; /* Added min-width to ensure it's never too small */
     user-select: none;
+    transition: max-width 0.3s ease;  /* Smooth transition for width changes */
   `;
   
   // Add drag event listeners
   overlay.addEventListener('mousedown', startDragging);
   document.addEventListener('mousemove', handleDrag);
   document.addEventListener('mouseup', stopDragging);
+  
+  // Add window resize listener
+  window.addEventListener('resize', handleWindowResize);
 
   // Create container for transcription text
   textContainer = document.createElement('div');
@@ -320,8 +324,7 @@ function showOverlay() {
       if (overlayPosition.left === '50%') {
         // Initial centered position
         overlay.style.left = '50%';
-        overlay.style.top = '70%';
-        overlay.style.bottom = '10%';
+        overlay.style.top = '80%';
         overlay.style.transform = 'translateX(-50%)';
       } else {
         // Use saved position from dragging
@@ -403,4 +406,56 @@ function applySettings() {
     textBuffer = newBuffer;
     updateTextDisplay();
   }
+}
+
+// Add window resize handler function
+function handleWindowResize() {
+  if (!overlay) return;
+  
+  // If the overlay is using absolute positioning (was dragged)
+  if (overlay.style.transform !== 'translateX(-50%)') {
+    // Get current overlay dimensions
+    const rect = overlay.getBoundingClientRect();
+    
+    // Ensure it stays within viewport bounds
+    const maxX = window.innerWidth - rect.width;
+    const maxY = window.innerHeight - rect.height;
+    
+    // Update position if needed
+    if (parseFloat(overlay.style.left) > maxX) {
+      overlay.style.left = `${maxX}px`;
+    }
+    
+    if (parseFloat(overlay.style.top) > maxY) {
+      overlay.style.top = `${maxY}px`;
+    }
+  } else {
+    // For centered overlay, just ensure max-width is appropriate
+    // This happens automatically via CSS, but you could add custom logic here
+  }
+  
+  // Update stored position
+  overlayPosition.left = overlay.style.left;
+  overlayPosition.top = overlay.style.top;
+}
+
+// Add this function to handle cleanup when extension is deactivated
+function cleanup() {
+  // Remove event listeners
+  if (overlay) {
+    overlay.removeEventListener('mousedown', startDragging);
+  }
+  document.removeEventListener('mousemove', handleDrag);
+  document.removeEventListener('mouseup', stopDragging);
+  window.removeEventListener('resize', handleWindowResize);
+  
+  // Remove overlay from DOM if it exists
+  if (overlay && overlay.parentNode) {
+    overlay.parentNode.removeChild(overlay);
+  }
+  
+  // Reset variables
+  overlay = null;
+  textContainer = null;
+  isVisible = false;
 }
