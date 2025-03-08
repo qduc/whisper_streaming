@@ -277,7 +277,8 @@ class TranslationManager:
         return translated
         
     def split_at_sentence_end(self, text):
-        """Split text at the last sentence end marker, returns (sentence_part, remainder)"""
+        """Split text at the last sentence end marker or comma if no sentence end marker found.
+        Returns (sentence_part, remainder)"""
         if not text:
             return "", ""
             
@@ -291,6 +292,12 @@ class TranslationManager:
         if last_end_pos >= 0:
             # Include the marker in the first part
             return text[:last_end_pos + 1].strip(), text[last_end_pos + 1:].strip()
+            
+        # If no sentence end found, try splitting at last comma
+        last_comma_pos = text.rfind(',')
+        if last_comma_pos >= 0 and last_comma_pos > len(text) // 3:  # Only split at comma if it's past the first third
+            return text[:last_comma_pos + 1].strip(), text[last_comma_pos + 1:].strip()
+            
         return "", text.strip()
     
     @property
