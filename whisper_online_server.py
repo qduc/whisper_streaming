@@ -226,6 +226,8 @@ def main():
                                     settings['inactivity_timeout'],
                                     translation_manager  # Pass the existing instance
                                 )
+                                # Update last_translation_time after processing
+                                last_translation_time = time.time()
                                 
                 processor.send_result = translated_send_result
             
