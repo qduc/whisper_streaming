@@ -7,6 +7,11 @@ let currentText = '';
 let lastUpdateTime = 0;
 let updateTimer = null;
 let hideTimer = null;
+// Add drag-related variables
+let isDragging = false;
+let dragOffset = { x: 0, y: 0 };
+let overlayPosition = { left: '50%', top: '70%' }; // Store position as percentage
+
 let currentSettings = {
   textSize: 'medium',
   overlayOpacity: 0.8,
@@ -106,6 +111,14 @@ function initializeBuffer() {
 }
 
 function createOverlay() {
+  // Check if overlay already exists
+  if (document.getElementById('whisper-transcription-overlay')) {
+    console.log('Overlay already exists, reusing existing element');
+    overlay = document.getElementById('whisper-transcription-overlay');
+    textContainer = document.getElementById('whisper-transcription-text');
+    return;
+  }
+  
   // Create main overlay container
   overlay = document.createElement('div');
   overlay.id = 'whisper-transcription-overlay';
@@ -114,7 +127,8 @@ function createOverlay() {
     bottom: 10%;
     left: 50%;
     transform: translateX(-50%);
-    min-width: 40%;  /* Wider to accommodate more text */
+    width: auto;     /* Changed from fixed 40% to auto */
+    max-width: 80%;  /* Added max-width to prevent too wide overlay */
     background-color: rgba(0, 0, 0, 0.7);
     color: white;
     z-index: 10000;
@@ -127,11 +141,18 @@ function createOverlay() {
     justify-content: flex-start;  /* Align from top for proper line display */
     overflow: hidden;
     opacity: 0.8;
-    transition: opacity 0.3s ease, display 0.3s ease;
-    pointer-events: none;
-    min-height: 80px;  /* Ensure height for multiple lines */
+    cursor: move;
+    height: auto;  /* Allow height to adjust based on content */
+    min-height: 20px;
+    min-width: 200px; /* Added min-width to ensure it's never too small */
+    user-select: none;
   `;
   
+  // Add drag event listeners
+  overlay.addEventListener('mousedown', startDragging);
+  document.addEventListener('mousemove', handleDrag);
+  document.addEventListener('mouseup', stopDragging);
+
   // Create container for transcription text
   textContainer = document.createElement('div');
   textContainer.id = 'whisper-transcription-text';
@@ -151,6 +172,54 @@ function createOverlay() {
   // Append container to overlay
   overlay.appendChild(textContainer);
   document.body.appendChild(overlay);
+}
+
+// Add new drag handling functions
+function startDragging(e) {
+  isDragging = true;
+  const rect = overlay.getBoundingClientRect();
+  
+  // Store the initial dimensions
+  const width = rect.width;
+  
+  // Remove transform and set absolute positioning
+  overlay.style.transform = 'none';
+  overlay.style.bottom = 'auto';
+  overlay.style.left = rect.left + 'px';
+  overlay.style.top = rect.top + 'px';
+  overlay.style.width = width + 'px';
+  
+  dragOffset = {
+    x: e.clientX - rect.left,
+    y: e.clientY - rect.top
+  };
+  
+  // Prevent text selection during drag
+  e.preventDefault();
+}
+
+function handleDrag(e) {
+  if (!isDragging) return;
+  
+  const x = e.clientX - dragOffset.x;
+  const y = e.clientY - dragOffset.y;
+  
+  // Ensure the overlay stays within viewport bounds
+  const rect = overlay.getBoundingClientRect();
+  const maxX = window.innerWidth - rect.width;
+  const maxY = window.innerHeight - rect.height;
+  
+  overlay.style.left = `${Math.min(Math.max(0, x), maxX)}px`;
+  overlay.style.top = `${Math.min(Math.max(0, y), maxY)}px`;
+}
+
+function stopDragging() {
+  if (isDragging) {
+    // Save the current position for future use
+    overlayPosition.left = overlay.style.left;
+    overlayPosition.top = overlay.style.top;
+  }
+  isDragging = false;
 }
 
 function updateTranscriptionText(message) {
@@ -247,6 +316,23 @@ function showOverlay() {
   }
   
   if (overlay) {
+    // Only apply initial positioning when first displayed
+    if (overlay.style.display === 'none') {
+      if (overlayPosition.left === '50%') {
+        // Initial centered position
+        overlay.style.left = '50%';
+        overlay.style.top = '70%';
+        overlay.style.bottom = '10%';
+        overlay.style.transform = 'translateX(-50%)';
+      } else {
+        // Use saved position from dragging
+        overlay.style.transform = 'none';
+        overlay.style.bottom = 'auto';
+        overlay.style.left = overlayPosition.left;
+        overlay.style.top = overlayPosition.top;
+      }
+    }
+    
     overlay.style.display = 'flex';
     isVisible = true;
     console.log('Overlay should now be visible');

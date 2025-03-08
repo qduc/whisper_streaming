@@ -5,7 +5,7 @@ const defaultSettings = {
   serverUrl: 'ws://localhost:43007',
   textSize: 'medium',
   overlayOpacity: 0.8,
-  numOfLines: 3,
+  numOfLines: 2,
   minLengthToDisplay: 30,
   maxIdleTime: 1.5
 };
@@ -191,12 +191,6 @@ async function startTranscription(settings) {
       action: 'startCapture',
       tabId: currentTabId,
       settings: settingsWithStream
-    });
-    
-    // Notify content script to show overlay
-    chrome.tabs.sendMessage(currentTabId, {
-      action: 'showOverlay',
-      settings: settings
     });
     
   } catch (error) {
