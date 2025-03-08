@@ -16,6 +16,7 @@ export class WebSocketClient {
     this.reconnectAttempts = 0;
     this.maxReconnectAttempts = 3;
     this.reconnectDelay = 1000; // 1 second initial delay
+    this.connectionTimeout = 5000; // 5 second connection timeout
   }
 
   /**
@@ -27,8 +28,17 @@ export class WebSocketClient {
       try {
         this.socket = new WebSocket(this.url);
         
+        // Set connection timeout
+        const timeoutId = setTimeout(() => {
+          if (this.socket && this.socket.readyState === WebSocket.CONNECTING) {
+            this.socket.close();
+            reject(new Error('Connection timeout after 5 seconds'));
+          }
+        }, this.connectionTimeout);
+        
         // Set up event handlers
         this.socket.onopen = () => {
+          clearTimeout(timeoutId); // Clear the timeout when connected
           console.log('WebSocket connected to', this.url);
           this.isConnected = true;
           this.reconnectAttempts = 0;

@@ -137,7 +137,17 @@ async function startTranscription(settings) {
     
     // Create WebSocket connection
     websocket = new WebSocketClient(settings.serverUrl);
-    await websocket.connect();
+    try {
+      await websocket.connect();
+    } catch (error) {
+      // Send connection error to popup
+      chrome.runtime.sendMessage({
+        action: 'statusUpdate',
+        status: 'error',
+        error: 'Failed to connect to transcription server. Please check if the server is running.'
+      });
+      throw error; // Re-throw to stop the transcription process
+    }
     
     // Set up message handler for transcriptions
     websocket.onMessage((data) => {
@@ -146,6 +156,20 @@ async function startTranscription(settings) {
         action: 'updateTranscription',
         ...data  // This spreads all the JSON message fields
       });
+    });
+
+    // Set up disconnect handler to stop transcription if server goes away
+    websocket.onDisconnect(() => {
+      if (isTranscribing) {
+        console.log('WebSocket disconnected, stopping transcription');
+        // Send disconnect error to popup
+        chrome.runtime.sendMessage({
+          action: 'statusUpdate',
+          status: 'error',
+          error: 'Lost connection to transcription server. Please try again.'
+        });
+        stopTranscription().catch(console.error);
+      }
     });
     
     // Setup offscreen document to handle tab capture

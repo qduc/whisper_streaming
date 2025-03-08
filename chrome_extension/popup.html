@@ -79,6 +79,20 @@
     button.stop {
       background-color: #f44336;
     }
+    button:disabled {
+      opacity: 0.7;
+      cursor: not-allowed;
+    }
+    @keyframes connecting {
+      0% { opacity: 0.6; }
+      50% { opacity: 1; }
+      100% { opacity: 0.6; }
+    }
+    .status.connecting {
+      background-color: #fff3cd;
+      color: #856404;
+      animation: connecting 1.5s infinite;
+    }
   </style>
 </head>
 <body>

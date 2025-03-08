@@ -8,6 +8,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const opacityInput = document.getElementById('overlay-opacity');
   
   let isTranscribing = false;
+  let isTransitioning = false;
   
   // Load saved settings
   chrome.storage.sync.get('settings', (data) => {
@@ -25,25 +26,41 @@ document.addEventListener('DOMContentLoaded', () => {
   
   // Event listener for button click
   actionButton.addEventListener('click', async () => {
+    if (isTransitioning) return;
+    
     try {
       hideError();
+      isTransitioning = true;
+      actionButton.disabled = true;
       
       if (!isTranscribing) {
-        // Start transcription
+        updateLoadingState('Connecting...');
         await startTranscription();
       } else {
-        // Stop transcription
+        updateLoadingState('Disconnecting...');
         await stopTranscription();
       }
     } catch (error) {
       showError(error.message);
+      updateUIState(false);
+    } finally {
+      isTransitioning = false;
+      actionButton.disabled = false;
     }
   });
   
   // Listen for status updates from background script
   chrome.runtime.onMessage.addListener((message) => {
     if (message.action === 'statusUpdate') {
-      updateUIState(message.status === 'listening');
+      if (message.status === 'error') {
+        showError(message.error);
+        updateUIState(false);
+      } else {
+        hideError();
+        updateUIState(message.status === 'listening');
+      }
+      isTransitioning = false;
+      actionButton.disabled = false;
     }
   });
   
@@ -65,9 +82,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     
     if (response.status === 'error') {
-      throw new Error(response.message);
+      showError(response.message);
+      updateUIState(false);
+      return;
     }
     
+    hideError();
     updateUIState(true);
   }
   
@@ -83,6 +103,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     updateUIState(false);
+  }
+  
+  // Update loading state
+  function updateLoadingState(message) {
+    statusElement.textContent = message;
+    statusElement.className = 'status connecting';
   }
   
   // Update UI based on transcription state
