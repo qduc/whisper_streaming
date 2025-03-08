@@ -118,6 +118,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
+// Function to set icon based on transcription state
+function updateIcon(transcribing) {
+  const iconPath = transcribing ? 
+    {
+      16: "icons/icon16_active.png",
+      48: "icons/icon48_active.png",
+      128: "icons/icon128_active.png"
+    } :
+    {
+      16: "icons/icon16.png",
+      48: "icons/icon48.png",
+      128: "icons/icon128.png"
+    };
+  
+  chrome.action.setIcon({ path: iconPath });
+
+  if (transcribing) {
+    chrome.action.setBadgeText({ text: 'ON' });
+    chrome.action.setBadgeBackgroundColor({ color: '#4CAF50' });
+  } else {
+    chrome.action.setBadgeText({ text: '' });
+  }
+}
+
 // Start the transcription process
 async function startTranscription(settings) {
   if (isTranscribing) {
@@ -192,6 +216,8 @@ async function startTranscription(settings) {
       tabId: currentTabId,
       settings: settingsWithStream
     });
+    
+    updateIcon(true); // Update icon to active state
     
   } catch (error) {
     console.error('Error starting transcription:', error);
@@ -272,6 +298,8 @@ async function stopTranscription() {
   } catch (error) {
     console.error('Error closing offscreen document:', error);
   }
+  
+  updateIcon(false); // Update icon to inactive state
 }
 
 // Clean up when tab is closed
