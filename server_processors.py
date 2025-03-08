@@ -370,14 +370,31 @@ class TranslatedServerProcessor(BaseServerProcessor):
     
     async def check_inactivity_timeout(self):
         """Check if we should translate the buffer due to inactivity"""
-        if self.text_buffer and (time.time() - self.last_text_time) > self.inactivity_timeout:
-            translated_segments = await self.translate_buffer()
-            for t_beg, t_end, translated_text in translated_segments:
-                print(f"{t_beg} {t_end} {translated_text} (inactivity timeout)", flush=True, file=sys.stderr)
+        current_time = time.time()
+        time_since_last_text = current_time - self.last_text_time
+
+        # Only proceed if we have text in the buffer and enough time has passed
+        if self.text_buffer and time_since_last_text > self.inactivity_timeout:
+            # Get the original text before we clear the buffer
+            combined_text = " ".join(self.text_buffer)
+            
+            # Only translate if we actually have content
+            if combined_text.strip():
+                # Use the async translation method
+                translated_text = await self.translation_manager.translate_text_async(combined_text)
+                
+                # Get time boundaries from the buffer
+                if self.time_buffer:
+                    t_beg = self.time_buffer[0][0]
+                    t_end = self.time_buffer[-1][1]
+                else:
+                    # Fallback if no time buffer
+                    t_beg = current_time * 1000
+                    t_end = current_time * 1000
+                
+                logger.debug(f"Translating due to inactivity: {time_since_last_text:.2f}s passed")
+                
                 try:
-                    # Get the original text
-                    combined_text = " ".join(self.text_buffer) if self.text_buffer else ""
-                    
                     # Format message as JSON for all clients
                     msg = json.dumps({
                         "type": "translation",
@@ -388,10 +405,17 @@ class TranslatedServerProcessor(BaseServerProcessor):
                         "reason": "inactivity_timeout"
                     })
                     await self.send_websocket(msg)
-                except BrokenPipeError:
-                    logger.info("broken pipe sending timeout buffer -- connection closed")
-                    break
-            return True
+                    
+                    # Clear buffers after successful translation
+                    self.text_buffer.clear()
+                    self.time_buffer.clear()
+                    self.last_translation_time = current_time
+                    
+                except Exception as e:
+                    logger.error(f"Error sending inactivity translation: {e}")
+                    
+                return True
+                
         return False
             
     async def process(self):
@@ -404,15 +428,15 @@ class TranslatedServerProcessor(BaseServerProcessor):
                     logger.info("WebSocket connection closed gracefully")
                     break
 
-                a = self.receive_audio_chunk()
+                # First check for inactivity timeout - this ensures we process timeouts even without new audio
+                await self.check_inactivity_timeout()
                 
-                # Check for inactivity timeout while waiting for audio
-                if await self.check_inactivity_timeout() and a is None:
-                    # If we've handled timeout and there's no more audio, we can break
-                    break
-                    
+                # Then try to receive audio
+                a = self.receive_audio_chunk()
                 if a is None:
-                    break
+                    # No audio available - wait a bit before checking timeout again
+                    await asyncio.sleep(0.1)  # Sleep to prevent tight loop
+                    continue
                     
                 self.online_asr_proc.insert_audio_chunk(a)
                 o = self.online_asr_proc.process_iter()
@@ -422,11 +446,11 @@ class TranslatedServerProcessor(BaseServerProcessor):
                     logger.info("broken pipe -- connection closed?")
                     break
                     
-            # Process any remaining text in the buffer
+            # Process any remaining text in the buffer before exiting
             if self.text_buffer:
+                logger.debug("Processing final buffer before exit")
                 translated_segments = await self.translate_buffer()
                 for t_beg, t_end, translated_text in translated_segments:
-                    print(f"{t_beg} {t_end} {translated_text} (final translated buffer)", flush=True, file=sys.stderr)
                     try:
                         # Get the original text
                         combined_text = " ".join(self.text_buffer) if self.text_buffer else ""
