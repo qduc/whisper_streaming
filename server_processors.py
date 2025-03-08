@@ -9,6 +9,70 @@ from translation_utils import TranslationManager
 
 logger = logging.getLogger(__name__)
 
+class TranslationProcessor:
+    def __init__(self, translation_manager, min_text_length):
+        self.translation_manager = translation_manager
+        self.base_min_text_length = min_text_length
+        self.current_input_length = min_text_length
+        self.adjustment_rate = 0.1  # How quickly to adjust (10% per sample)
+        
+    def calculate_adaptive_min_length(self):
+        """Adjust input length requirement based on recent output lengths"""
+        if not hasattr(self.translation_manager, 'translation_history') or not self.translation_manager.translation_history:
+            return self.base_min_text_length
+            
+        # Look at most recent translation
+        history_items = list(self.translation_manager.translation_history)[-1:]
+        if not history_items:
+            return self.current_input_length
+            
+        source, translated = history_items[0]
+        if not source or not translated:
+            return self.current_input_length
+            
+        # Calculate how far off we are from desired output length
+        output_length = len(translated)
+        length_diff = self.base_min_text_length - output_length
+        
+        # Adjust input length proportionally
+        adjustment = length_diff * self.adjustment_rate
+        new_length = self.current_input_length + adjustment
+        
+        # Apply limits to prevent extreme adjustments
+        min_length = int(self.base_min_text_length * 0.5)  # Don't go below 50% of base
+        max_length = int(self.base_min_text_length * 1.5)  # Don't go above 200% of base
+        self.current_input_length = max(min_length, min(int(new_length), max_length))
+        
+        logger.debug(f"Adjusted input length to {self.current_input_length} (target output: {self.base_min_text_length}, last output: {output_length})")
+        return self.current_input_length
+        
+    def should_translate(self, combined_text, time_since_last, interval, max_buffer_time):
+        """Determine if translation should be performed"""
+        adaptive_min_length = self.calculate_adaptive_min_length()
+        
+        # Text too short
+        if len(combined_text) < adaptive_min_length:
+            logger.debug(f"Text too short for translation ({len(combined_text)} chars < {adaptive_min_length}), skipping")
+            return False
+            
+        # Buffer timeout
+        if time_since_last > max_buffer_time:
+            logger.debug(f"Buffer time exceeded ({time_since_last:.1f}s > {max_buffer_time}s), translating")
+            return True
+            
+        # Regular interval check
+        if time_since_last > interval:
+            if self.translation_manager.is_sentence_end(combined_text):
+                logger.debug("Sentence end detected after interval, translating")
+                return True
+                
+            sentence_part, _ = self.translation_manager.split_at_sentence_end(combined_text)
+            if sentence_part and len(sentence_part) >= adaptive_min_length:
+                logger.debug("Complete sentence found that meets min length, translating")
+                return True
+                
+        return False
+
 # Updated to use the new async translation method
 async def process_translation(connection, text, text_buffer, last_translation_time,
                       target_language='en', model="gemini-2.0-flash", 
@@ -43,80 +107,27 @@ async def process_translation(connection, text, text_buffer, last_translation_ti
             translation_provider=provider
         )
     
-    # Add text to buffer
+    processor = TranslationProcessor(translation_manager, min_text_length)
+    
+    # Add text to buffer and prepare
     text_buffer.append(text)
     current_time = time.time()
     combined_text = " ".join(text_buffer)
-    
-    # Check if we should translate now
     time_since_last = current_time - last_translation_time
-    should_translate = False
     
-    # Calculate adaptive min_text_length based on translation history if available
-    adaptive_min_text_length = min_text_length
-    if hasattr(translation_manager, 'translation_history') and translation_manager.translation_history:
-        # Calculate the average character ratio from history (max of 10 most recent translations)
-        char_ratios = []
-        history_items = list(translation_manager.translation_history)[-10:]  # Use only recent history
-        
-        for source, translated in history_items:
-            if source and translated:  # Ensure we don't divide by zero
-                ratio = len(translated) / len(source)
-                char_ratios.append(ratio)
-        
-        if char_ratios:
-            avg_ratio = sum(char_ratios) / len(char_ratios)
-            
-            # Adjust min_text_length based on the ratio with limits
-            # Don't let it go below 25% or above 200% of original value
-            if avg_ratio > 0:
-                adjusted_length = int(min_text_length / avg_ratio)
-                # Apply limits to prevent extreme adjustments
-                min_adjusted = int(min_text_length * 0.75)  # Minimum 25% of original
-                max_adjusted = int(min_text_length * 1.25)   # Maximum 200% of original
-                
-                adaptive_min_text_length = max(min_adjusted, min(adjusted_length, max_adjusted))
-                logger.debug(f"Adjusted min_text_length to {adaptive_min_text_length} (original: {min_text_length}, ratio: {avg_ratio:.2f})")
-    
-    # Check for minimum text length (using the adaptive value)
-    if len(combined_text) < adaptive_min_text_length:
-        logger.debug(f"Text too short for translation ({len(combined_text)} chars < {adaptive_min_text_length}), skipping")
-        return translation_manager
-    
-    # Case 1: Buffer has been accumulating for too long
-    if time_since_last > max_buffer_time:
-        logger.debug(f"Buffer time exceeded ({time_since_last:.1f}s > {max_buffer_time}s), translating")
-        should_translate = True
-        
-    # Case 2: Enough time has passed AND we have minimum text to translate
-    elif time_since_last > interval:
-        # Check if the buffer ends with a sentence terminator
-        if translation_manager.is_sentence_end(combined_text):
-            logger.debug(f"Sentence end detected after interval, translating")
-            should_translate = True
-        
-        # Check if we can at least split at a sentence boundary
-        sentence_part, _ = translation_manager.split_at_sentence_end(combined_text)
-        if sentence_part and len(sentence_part) >= adaptive_min_text_length:
-            # We have at least one complete sentence that meets minimum length
-            logger.debug(f"Complete sentence found that meets min length, translating")
-            should_translate = True
-    
-    # Perform translation if needed
-    if should_translate:
-        # Use async translation method which handles queueing
+    # Check if translation is needed
+    if processor.should_translate(combined_text, time_since_last, interval, max_buffer_time):
+        # Perform translation
         translated_text = await translation_manager.translate_text_async(combined_text)
         
-        # Format and send the translated message
+        # Send translation
         try:
-            # Format message as JSON for all clients
             msg = json.dumps({
                 "type": "translation",
                 "original": combined_text,
                 "translation": translated_text
             })
             
-            # Make this work with both websocket and TCP connections
             if hasattr(connection, 'websocket'):
                 await connection.send(msg)
             else:
@@ -125,11 +136,10 @@ async def process_translation(connection, text, text_buffer, last_translation_ti
         except Exception as e:
             logger.error(f"Error sending translation: {e}")
         
-        # Clear buffer and update translation time
+        # Reset state
         text_buffer.clear()
         last_translation_time = current_time
     
-    # Always return the translation manager instance
     return translation_manager
 
 class ServerProcessor(BaseServerProcessor):
