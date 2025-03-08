@@ -19,7 +19,7 @@ class TranslationManager:
         self.config_path = config_path
         
         # Default system prompt
-        self.default_system_prompt = f"""Translate the following live transcription into {self.target_language}. Preserve accuracy and context. Output only the translated text without any formatting and (...) characters."""
+        self.default_system_prompt = f"Translate the following speech transcription into {self.target_language} in a natural, fluent way, ensuring clarity and readability. Maintain the original meaning while using wording that sounds natural to a native Vietnamese speaker. Avoid overly literal translations and focus on conveying the message naturally. Output only the translated text without any additional commentary or formatting."
         
         # Load system prompt from config if available
         self.system_prompt = self._load_system_prompt()

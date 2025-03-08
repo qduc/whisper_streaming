@@ -72,8 +72,8 @@ async def process_translation(connection, text, text_buffer, last_translation_ti
             if avg_ratio > 0:
                 adjusted_length = int(min_text_length / avg_ratio)
                 # Apply limits to prevent extreme adjustments
-                min_adjusted = int(min_text_length * 0.25)  # Minimum 25% of original
-                max_adjusted = int(min_text_length * 2.0)   # Maximum 200% of original
+                min_adjusted = int(min_text_length * 0.75)  # Minimum 25% of original
+                max_adjusted = int(min_text_length * 1.25)   # Maximum 200% of original
                 
                 adaptive_min_text_length = max(min_adjusted, min(adjusted_length, max_adjusted))
                 logger.debug(f"Adjusted min_text_length to {adaptive_min_text_length} (original: {min_text_length}, ratio: {avg_ratio:.2f})")
