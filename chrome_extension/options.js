@@ -9,6 +9,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('numOfLines').addEventListener('change', saveSettings);
   document.getElementById('minLengthToDisplay').addEventListener('change', saveSettings);
   document.getElementById('maxIdleTime').addEventListener('change', saveSettings);
+  document.getElementById('overlayHideTimeout').addEventListener('change', saveSettings);
   
   // Set up test button
   document.getElementById('testButton').addEventListener('click', testConnection);
@@ -42,6 +43,10 @@ function loadSavedSettings() {
       if (data.settings.maxIdleTime !== undefined) {
         document.getElementById('maxIdleTime').value = data.settings.maxIdleTime;
       }
+
+      if (data.settings.overlayHideTimeout !== undefined) {
+        document.getElementById('overlayHideTimeout').value = data.settings.overlayHideTimeout;
+      }
     }
     
     // Update opacity display
@@ -59,7 +64,8 @@ function saveSettings() {
     overlayOpacity: document.getElementById('overlayOpacity').value / 100,
     numOfLines: parseInt(document.getElementById('numOfLines').value),
     minLengthToDisplay: parseInt(document.getElementById('minLengthToDisplay').value),
-    maxIdleTime: parseFloat(document.getElementById('maxIdleTime').value)
+    maxIdleTime: parseFloat(document.getElementById('maxIdleTime').value),
+    overlayHideTimeout: parseInt(document.getElementById('overlayHideTimeout').value)
   };
   
   chrome.storage.sync.set({ settings }, () => {

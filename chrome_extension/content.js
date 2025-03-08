@@ -6,6 +6,7 @@ let textBuffer = [];
 let currentText = '';
 let lastUpdateTime = 0;
 let updateTimer = null;
+let hideTimer = null;
 let currentSettings = {
   textSize: 'medium',
   overlayOpacity: 0.8,
@@ -14,7 +15,8 @@ let currentSettings = {
   maxLineLength: 100,        // Legacy setting
   numOfLines: 3,             // Default number of lines in the buffer
   minLengthToDisplay: 30,    // Minimum text length to display
-  maxIdleTime: 1.5           // Maximum idle time in seconds before displaying buffer
+  maxIdleTime: 1.5,          // Maximum idle time in seconds before displaying buffer
+  overlayHideTimeout: 15     // Time in seconds before hiding overlay when idle
 };
 
 // Initialize when the content script loads
@@ -87,6 +89,9 @@ function loadSettings() {
       if (data.settings.maxIdleTime) {
         currentSettings.maxIdleTime = data.settings.maxIdleTime;
       }
+      if (data.settings.overlayHideTimeout) {
+        currentSettings.overlayHideTimeout = data.settings.overlayHideTimeout;
+      }
       console.log('Loaded settings:', currentSettings);
       
       // Initialize buffer with empty lines based on numOfLines setting
@@ -122,7 +127,7 @@ function createOverlay() {
     justify-content: flex-start;  /* Align from top for proper line display */
     overflow: hidden;
     opacity: 0.8;
-    transition: opacity 0.3s ease;
+    transition: opacity 0.3s ease, display 0.3s ease;
     pointer-events: none;
     min-height: 80px;  /* Ensure height for multiple lines */
   `;
@@ -211,10 +216,8 @@ function updateTranscriptionText(message) {
   
   lastUpdateTime = now;
   
-  // Ensure overlay is visible whenever we get transcription updates
-  if (!isVisible) {
-    showOverlay();
-  }
+  // Show overlay and reset hide timer
+  showOverlay();
 }
 
 function updateTextDisplay() {
@@ -247,6 +250,9 @@ function showOverlay() {
     overlay.style.display = 'flex';
     isVisible = true;
     console.log('Overlay should now be visible');
+    
+    // Reset hide timer whenever we show the overlay
+    resetHideTimer();
   } else {
     console.error('Failed to create or find overlay element');
   }
@@ -258,6 +264,20 @@ function hideOverlay() {
   isVisible = false;
   textBuffer = [];
   updateTextDisplay();
+}
+
+function resetHideTimer() {
+  // Clear existing timer if any
+  if (hideTimer) {
+    clearTimeout(hideTimer);
+  }
+  
+  // Set new timer
+  hideTimer = setTimeout(() => {
+    if (isVisible) {
+      hideOverlay();
+    }
+  }, currentSettings.overlayHideTimeout * 1000);
 }
 
 function applySettings() {
