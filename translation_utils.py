@@ -12,20 +12,14 @@ class TranslationManager:
     """Handles translation of text using various API providers"""
     
     def __init__(self, target_language='en', model="gemini-2.0-flash", translation_provider='gemini',
-                 history_size=4, max_history_tokens=200, use_history=True, config_path="translation_config.yaml"):
+                 history_size=2, max_history_tokens=200, use_history=True, config_path="translation_config.yaml"):
         self.target_language = target_language
         self.model = model
         self.translation_provider = translation_provider
         self.config_path = config_path
         
         # Default system prompt
-        self.default_system_prompt = f"""Translate the following live transcription into {self.target_language}. Preserve accuracy and context. Output only the translated text without any formatting and (...) characters.
-
-**Example: (English to Vietnamese)**
-Input:
-Not only for gaming, RTX 4090 is also a powerful choice for content creators such as 3D video editing, AI programming or graphic design. Thanks to 24GB GDDR6X VRAM, heavy tasks such as image rendering or video editing can be done quickly.
-Output:
-Không chỉ dành cho gaming, RTX 4090 còn là một lựa chọn mạnh mẽ cho các nhà sáng tạo nội dung như dựng video 3D, lập trình AI hay thiết kế đồ họa. Nhờ bộ nhớ VRAM 24GB GDDR6X, các tác vụ nặng như render hình ảnh hay edit video đều có thể được thực hiện một cách nhanh chóng."""
+        self.default_system_prompt = f"""Translate the following live transcription into {self.target_language}. Preserve accuracy and context. Output only the translated text without any formatting and (...) characters."""
         
         # Load system prompt from config if available
         self.system_prompt = self._load_system_prompt()
@@ -37,7 +31,6 @@ Không chỉ dành cho gaming, RTX 4090 còn là một lựa chọn mạnh mẽ 
         
         # Translation history settings
         self.use_history = use_history                    # Whether to use history for context
-        print(f"Initializing TranslationManager with history_size={history_size}, use_history={use_history}")
         self.translation_history = deque(maxlen=history_size)  # How many past translations to keep
         self.max_history_tokens = max_history_tokens      # Approximate max tokens to use from history
         
@@ -45,10 +38,106 @@ Không chỉ dành cho gaming, RTX 4090 còn là một lựa chọn mạnh mẽ 
         self.sentence_end_markers = ['.', '!', '?', '。', '！', '？', '।', '॥', '։', '؟']
         
         # Queue system for translation requests
-        self._translation_queue = []
+        self._translation_queue = asyncio.Queue()
         self._translation_lock = asyncio.Lock()
         self._translation_in_progress = False
+        self._translation_task = None
+
+    async def start_translation_worker(self):
+        """Start the background translation worker"""
+        if self._translation_task is None:
+            self._translation_task = asyncio.create_task(self._translation_worker())
+            logger.debug("Started translation worker task")
+
+    async def _translation_worker(self):
+        """Background worker that processes translation requests"""
+        while True:
+            try:
+                # Get the next text to translate from the queue
+                text = await self._translation_queue.get()
+                self._translation_in_progress = True
+                logger.debug(f"Translation worker processing text: {text[:30]}...")
+
+                try:
+                    result = await self._perform_translation(text)
+                    # Cache the result
+                    if len(self.translation_cache) >= self.cache_size_limit:
+                        oldest = self.cache_queue.popleft()
+                        if oldest in self.translation_cache:
+                            del self.translation_cache[oldest]
+                    
+                    self.translation_cache[text] = result
+                    self.cache_queue.append(text)
+                    self.translation_history.append((text, result))
+                    
+                finally:
+                    self._translation_in_progress = False
+                    self._translation_queue.task_done()
+                    
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Error in translation worker: {e}")
+
+    async def translate_text_async(self, text):
+        """Async version of translate_text that uses the queue system"""
+        # Check cache first for immediate result
+        if text in self.translation_cache:
+            logger.debug(f"Translation cache hit: {text[:30]}...")
+            return self.translation_cache[text]
         
+        # Ensure worker is running
+        await self.start_translation_worker()
+        
+        # Add to queue and wait for result
+        await self._translation_queue.put(text)
+        logger.info(f"Queued text for translation: {text[:30]}...")
+        
+        # Wait for this item to be processed
+        await self._translation_queue.join()
+        
+        # Return the cached result
+        return self.translation_cache.get(text, text)
+
+    async def _perform_translation(self, text):
+        """Internal method to perform the actual translation API call"""
+        try:
+            messages = self._prepare_messages_with_history(text)
+            
+            if self.translation_provider == 'gemini':
+                gemini_api_key = os.environ.get("GEMINI_API_KEY")
+                if not gemini_api_key:
+                    logger.warning("GEMINI_API_KEY environment variable not set. Falling back to OpenAI.")
+                    client = openai.AsyncOpenAI()  # Use async client
+                else:
+                    client = openai.AsyncOpenAI(  # Use async client
+                        api_key=gemini_api_key,
+                        base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+                    )
+                    logger.debug("Using Gemini API for translation")
+                
+                # Use native async call instead of asyncio.to_thread
+                response = await client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    max_tokens=1000
+                )
+            elif self.translation_provider == 'openai':
+                client = openai.AsyncOpenAI()  # Use async client
+                response = await client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    max_tokens=1000
+                )
+            else:
+                raise ValueError(f"Unknown translation provider: {self.translation_provider}")
+            
+            return response.choices[0].message.content.strip()
+            
+        except Exception as e:
+            logger.error(f"Translation error: {e}")
+            return text  # Fall back to original text on error
+    
     def _load_system_prompt(self):
         """Load system prompt from config file or use the default one if not available"""
         try:
@@ -118,25 +207,6 @@ Không chỉ dành cho gaming, RTX 4090 còn là một lựa chọn mạnh mẽ 
         # print(f"Prepared messages: {messages}")
         return messages
     
-    async def translate_text_async(self, text):
-        """Async version of translate_text that uses the queue system"""
-        # Check cache first for immediate result
-        if text in self.translation_cache:
-            logger.debug(f"Translation cache hit: {text[:30]}...")
-            return self.translation_cache[text]
-            
-        # Use lock to ensure we handle one request at a time
-        async with self._translation_lock:
-            self._translation_in_progress = True
-            logger.debug(f"Starting translation for text: {text[:30]}...")
-            
-            try:
-                result = await self._perform_translation(text)
-                return result
-            finally:
-                self._translation_in_progress = False
-                logger.debug("Translation completed and lock released")
-    
     def translate_text(self, text):
         """Translate text with caching to reduce API calls (synchronous version)"""
         # This is kept for backward compatibility
@@ -153,66 +223,6 @@ Không chỉ dành cho gaming, RTX 4090 còn là một lựa chọn mạnh mẽ 
             messages = self._prepare_messages_with_history(text)
             result = self._perform_translation_sync(messages, text)
             return result
-            
-        except Exception as e:
-            logger.error(f"Translation error: {e}")
-            return text  # Fall back to original text on error
-    
-    async def _perform_translation(self, text):
-        """Internal method to perform the actual translation API call"""
-        try:
-            # Prepare messages with history
-            messages = self._prepare_messages_with_history(text)
-            
-            if self.translation_provider == 'gemini':
-                # Use Gemini 2.0 Flash model
-                gemini_api_key = os.environ.get("GEMINI_API_KEY")
-                if not gemini_api_key:
-                    logger.warning("GEMINI_API_KEY environment variable not set. Falling back to OpenAI.")
-                    client = openai.OpenAI()
-                else:
-                    client = openai.OpenAI(
-                        api_key=gemini_api_key,
-                        base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
-                    )
-                    logger.debug("Using Gemini API for translation")
-                    
-                response = await asyncio.to_thread(
-                    client.chat.completions.create,
-                    model=self.model,
-                    messages=messages,
-                    max_tokens=1000
-                )
-            elif self.translation_provider == 'openai':
-                # Use standard OpenAI model
-                client = openai.OpenAI()
-                response = await asyncio.to_thread(
-                    client.chat.completions.create,
-                    model=self.model,
-                    messages=messages,
-                    max_tokens=1000
-                )
-            else:
-                raise ValueError(f"Unknown translation provider: {self.translation_provider}")
-                
-            translated = response.choices[0].message.content.strip()
-            
-            # Add to cache
-            if len(self.translation_cache) >= self.cache_size_limit:
-                # Remove oldest entry
-                oldest = self.cache_queue.popleft()
-                if oldest in self.translation_cache:
-                    del self.translation_cache[oldest]
-            
-            # Add to translation history
-            # print(f"Before adding to history: history size={len(self.translation_history)}")
-            self.translation_history.append((text, translated))
-            # print(f"After adding to history: history size={len(self.translation_history)}")
-            
-            self.translation_cache[text] = translated
-            self.cache_queue.append(text)
-            
-            return translated
             
         except Exception as e:
             logger.error(f"Translation error: {e}")
