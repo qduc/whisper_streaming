@@ -36,7 +36,7 @@ class TranslationProcessor:
             
         sentence_part, remainder = self.translation_manager.split_at_sentence_end(combined_text)
         if sentence_part and len(sentence_part) >= self.min_text_length:
-            logger.debug("Complete sentence found that meets min length, translating")
+            # logger.debug("Complete sentence found that meets min length, translating")
             # Return only the complete sentence part
             return sentence_part
                 

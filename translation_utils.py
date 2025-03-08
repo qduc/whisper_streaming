@@ -43,6 +43,18 @@ class TranslationManager:
         self._translation_in_progress = False
         self._translation_task = None
 
+        # Initialize NLTK
+        try:
+            import nltk
+            from nltk.tokenize import sent_tokenize
+            nltk.download('punkt')
+            nltk.download('punkt_tab')
+            self.sent_tokenize = sent_tokenize
+            logger.debug("NLTK sentence tokenizer loaded")
+        except ImportError:
+            logger.warning("NLTK not available, will use manual sentence splitting")
+            self.sent_tokenize = None
+
     async def start_translation_worker(self):
         """Start the background translation worker"""
         if self._translation_task is None:
@@ -56,7 +68,6 @@ class TranslationManager:
                 # Get the next text to translate from the queue
                 text = await self._translation_queue.get()
                 self._translation_in_progress = True
-                logger.debug(f"Translation worker processing text: {text[:30]}...")
 
                 try:
                     result = await self._perform_translation(text)
@@ -91,7 +102,6 @@ class TranslationManager:
         
         # Add to queue and wait for result
         await self._translation_queue.put(text)
-        logger.info(f"Queued text for translation: {text[:30]}...")
         
         # Wait for this item to be processed
         await self._translation_queue.join()
@@ -114,7 +124,6 @@ class TranslationManager:
                         api_key=gemini_api_key,
                         base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
                     )
-                    logger.debug("Using Gemini API for translation")
                 
                 # Use native async call instead of asyncio.to_thread
                 response = await client.chat.completions.create(
@@ -231,7 +240,6 @@ class TranslationManager:
     def _perform_translation_sync(self, messages, text):
         """Internal synchronous method to perform translation API call (for backward compatibility)"""
         if self.translation_provider == 'gemini':
-            # Use Gemini 2.0 Flash model
             gemini_api_key = os.environ.get("GEMINI_API_KEY")
             if not gemini_api_key:
                 logger.warning("GEMINI_API_KEY environment variable not set. Falling back to OpenAI.")
@@ -241,7 +249,6 @@ class TranslationManager:
                     api_key=gemini_api_key,
                     base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
                 )
-                logger.debug("Using Gemini API for translation")
                 
             response = client.chat.completions.create(
                 model=self.model,
@@ -277,28 +284,48 @@ class TranslationManager:
         return translated
         
     def split_at_sentence_end(self, text):
-        """Split text at the last sentence end marker or comma if no sentence end marker found.
-        Returns (sentence_part, remainder)"""
+        """Split text at the last sentence end using NLTK."""
         if not text:
             return "", ""
+        
+        if self.sent_tokenize is None:
+            return self._manual_split_at_sentence_end(text)
+        
+        # Get sentences using NLTK
+        sentences = self.sent_tokenize(text)
+        
+        if len(sentences) == 0:
+            return "", text.strip()
+        
+        # Check if the last sentence ends with a sentence marker
+        last_sentence = sentences[-1].strip()
+        has_end_marker = any(last_sentence.endswith(marker) for marker in self.sentence_end_markers)
             
-        # Find the last occurrence of any sentence end marker
-        last_end_pos = -1
+        if len(sentences) == 1:
+            if has_end_marker:
+                return last_sentence, ""
+            return "", text.strip()
+        
+        if not has_end_marker:
+            # Join all complete sentences
+            complete_part = ' '.join(sentences[:-1]).strip()
+            return complete_part, last_sentence
+        
+        # All sentences are complete
+        return ' '.join(sentences).strip(), ""
+
+    def _manual_split_at_sentence_end(self, text):
+        """Manual split at sentence end if NLTK is not available"""
+        last_end = -1
         for marker in self.sentence_end_markers:
             pos = text.rfind(marker)
-            if pos > last_end_pos:
-                last_end_pos = pos
-                
-        if last_end_pos >= 0:
-            # Include the marker in the first part
-            return text[:last_end_pos + 1].strip(), text[last_end_pos + 1:].strip()
+            if pos > last_end:
+                last_end = pos
+        
+        if last_end == -1:
+            return "", text.strip()
             
-        # If no sentence end found, try splitting at last comma
-        last_comma_pos = text.rfind(',')
-        if last_comma_pos >= 0 and last_comma_pos > len(text) // 3:  # Only split at comma if it's past the first third
-            return text[:last_comma_pos + 1].strip(), text[last_comma_pos + 1:].strip()
-            
-        return "", text.strip()
+        return text[:last_end + 1].strip(), text[last_end + 1:].strip()
     
     @property
     def is_translating(self):

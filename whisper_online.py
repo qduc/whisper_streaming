@@ -854,6 +854,7 @@ def set_logging(args,logger,other="_server"):
     logging.getLogger("whisper_online"+other).setLevel(args.log_level)
 #    logging.getLogger("whisper_online_server").setLevel(args.log_level)
     logging.getLogger("server_processors").setLevel(args.log_level)
+    logging.getLogger("translation_utils").setLevel(args.log_level)
 
 
 
