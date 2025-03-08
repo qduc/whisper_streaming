@@ -124,7 +124,6 @@ function createOverlay() {
   overlay.id = 'whisper-transcription-overlay';
   overlay.style.cssText = `
     position: fixed;
-    bottom: 10%;
     left: 50%;
     transform: translateX(-50%);
     width: auto;     /* Changed from fixed 40% to auto */
@@ -348,8 +347,11 @@ function hideOverlay() {
   if (!overlay) return;
   overlay.style.display = 'none';
   isVisible = false;
-  textBuffer = [];
-  updateTextDisplay();
+  
+  // Don't clear the text buffer when hiding overlay
+  // Text should persist between hide/show events
+  // textBuffer = [];
+  // updateTextDisplay();
 }
 
 function resetHideTimer() {
