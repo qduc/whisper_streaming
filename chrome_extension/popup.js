@@ -19,6 +19,32 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
   
+  // Event listeners for settings changes
+  textSizeSelect.addEventListener('change', updateSettings);
+  opacityInput.addEventListener('input', updateSettings);
+  
+  // Function to update settings
+  async function updateSettings() {
+    const settings = {
+      serverUrl: serverUrlInput.value,
+      textSize: textSizeSelect.value,
+      overlayOpacity: parseFloat(opacityInput.value)
+    };
+    
+    // Save settings
+    chrome.storage.sync.set({ settings });
+    
+    // If currently transcribing, send settings update to content script
+    if (isTranscribing) {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        chrome.tabs.sendMessage(tabs[0].id, {
+          action: 'settingsUpdated',
+          settings
+        });
+      });
+    }
+  }
+  
   // Check current transcription status
   chrome.runtime.sendMessage({ action: 'getStatus' }, (response) => {
     updateUIState(response.isTranscribing);
