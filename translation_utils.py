@@ -12,7 +12,7 @@ class TranslationManager:
     """Handles translation of text using various API providers"""
     
     def __init__(self, target_language='en', model="gemini-2.0-flash", translation_provider='gemini',
-                 history_size=2, max_history_tokens=200, use_history=True, config_path="translation_config.yaml"):
+                 history_size=4, max_history_tokens=200, use_history=True, config_path="translation_config.yaml"):
         self.target_language = target_language
         self.model = model
         self.translation_provider = translation_provider

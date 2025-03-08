@@ -482,9 +482,9 @@ class OnlineASRProcessor:
         """
 
         prompt, non_prompt = self.prompt()
-        logger.debug(f"PROMPT: {prompt}")
-        logger.debug(f"CONTEXT: {non_prompt}")
-        logger.debug(f"transcribing {len(self.audio_buffer)/self.SAMPLING_RATE:2.2f} seconds from {self.buffer_time_offset:2.2f}")
+        # logger.debug(f"PROMPT: {prompt}")
+        # logger.debug(f"CONTEXT: {non_prompt}")
+        # logger.debug(f"transcribing {len(self.audio_buffer)/self.SAMPLING_RATE:2.2f} seconds from {self.buffer_time_offset:2.2f}")
         res = self.asr.transcribe(self.audio_buffer, init_prompt=prompt)
 
         # transform to [(beg,end,"word1"), ...]
@@ -494,9 +494,9 @@ class OnlineASRProcessor:
         o = self.transcript_buffer.flush()
         self.commited.extend(o)
         completed = self.to_flush(o)
-        logger.debug(f">>>>COMPLETE NOW: {completed}")
+        # logger.debug(f">>>>COMPLETE NOW: {completed}")
         the_rest = self.to_flush(self.transcript_buffer.complete())
-        logger.debug(f"INCOMPLETE: {the_rest}")
+        # logger.debug(f"INCOMPLETE: {the_rest}")
 
         # there is a newly confirmed text
 
@@ -520,18 +520,18 @@ class OnlineASRProcessor:
             #while k>0 and self.commited[k][1] > l:
             #    k -= 1
             #t = self.commited[k][1] 
-            logger.debug("chunking segment")
+            # logger.debug("chunking segment")
             #self.chunk_at(t)
 
-        logger.debug(f"len of buffer now: {len(self.audio_buffer)/self.SAMPLING_RATE:2.2f}")
+        # logger.debug(f"len of buffer now: {len(self.audio_buffer)/self.SAMPLING_RATE:2.2f}")
         return self.to_flush(o)
 
     def chunk_completed_sentence(self):
         if self.commited == []: return
         logger.debug(self.commited)
         sents = self.words_to_sentences(self.commited)
-        for s in sents:
-            logger.debug(f"\t\tSENT: {s}")
+        # for s in sents:
+            # logger.debug(f"\t\tSENT: {s}")
         if len(sents) < 2:
             return
         while len(sents) > 2:
@@ -539,7 +539,7 @@ class OnlineASRProcessor:
         # we will continue with audio processing at this timestamp
         chunk_at = sents[-2][1]
 
-        logger.debug(f"--- sentence chunked at {chunk_at:2.2f}")
+        # logger.debug(f"--- sentence chunked at {chunk_at:2.2f}")
         self.chunk_at(chunk_at)
 
     def chunk_completed_segment(self, res):
@@ -556,12 +556,12 @@ class OnlineASRProcessor:
                 ends.pop(-1)
                 e = ends[-2]+self.buffer_time_offset
             if e <= t:
-                logger.debug(f"--- segment chunked at {e:2.2f}")
+                # logger.debug(f"--- segment chunked at {e:2.2f}")
                 self.chunk_at(e)
-            else:
-                logger.debug(f"--- last segment not within commited area")
-        else:
-            logger.debug(f"--- not enough segments to chunk")
+            # else:
+                # logger.debug(f"--- last segment not within commited area")
+        # else:
+            # logger.debug(f"--- not enough segments to chunk")
 
 
 
@@ -718,7 +718,11 @@ class VACOnlineASRProcessor(OnlineASRProcessor):
             ret = self.online.process_iter()
             return ret
         else:
-            logger.debug(f"no online update, only VAD, status: {self.status}")
+            if hasattr(self, '_last_status') and self._last_status == self.status:
+                pass  # Don't log if status hasn't changed
+            else:
+                logger.debug(f"no online update, only VAD, status: {self.status}")
+                self._last_status = self.status
             return (None, None, "")
 
     def finish(self):

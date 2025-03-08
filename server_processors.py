@@ -207,6 +207,10 @@ class TranslatedServerProcessor(BaseServerProcessor):
         # Check if enough time has passed since last translation
         time_since_last = current_time - self.last_translation_time
         
+        # Check for inactivity timeout - translate regardless of length if no new text for a while
+        if self.text_buffer and (current_time - self.last_text_time) > self.inactivity_timeout:
+            return True
+
         # Calculate adaptive min_text_length based on translation history if available
         adaptive_min_text_length = self.min_text_length
         if hasattr(self.translation_manager, 'translation_history') and self.translation_manager.translation_history:
@@ -233,10 +237,6 @@ class TranslatedServerProcessor(BaseServerProcessor):
                     adaptive_min_text_length = max(min_adjusted, min(adjusted_length, max_adjusted))
                     logger.debug(f"Adjusted min_text_length to {adaptive_min_text_length} (original: {self.min_text_length}, ratio: {avg_ratio:.2f})")
         
-        # Check for inactivity timeout - translate if no new text for a while and buffer not empty
-        if self.text_buffer and (current_time - self.last_text_time) > self.inactivity_timeout:
-            return True
-
         # Case 1: Buffer has been accumulating for too long
         if self.time_buffer and time_since_last > self.max_buffer_time:
             return True
