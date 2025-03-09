@@ -11,6 +11,7 @@ let hideTimer = null;
 let isDragging = false;
 let dragOffset = { x: 0, y: 0 };
 let overlayPosition = { left: '50%', top: '80%' }; // Store position as percentage
+let hiddenByTimer = false; // Add a flag to track if overlay was hidden by timer
 
 let currentSettings = {
   textSize: 'medium',
@@ -49,7 +50,7 @@ function initialize() {
           currentSettings = {...currentSettings, ...message.settings};
           applySettings();
         }
-        showOverlay();
+        showOverlay(true);
       }
       else if (message.action === 'hideOverlay') {
         console.log('Hide overlay command received');
@@ -225,10 +226,18 @@ function stopDragging() {
   isDragging = false;
 }
 
-function updateTranscriptionText(message) {
-  if (!textContainer) {
-    console.error('Text container not found, recreating overlay');
+function ensureOverlayExists() {
+  if (!overlay) {
+    console.log('Overlay not found, recreating overlay');
     createOverlay();
+  }
+  return overlay !== null;
+}
+
+function updateTranscriptionText(message) {
+  if (!ensureOverlayExists()) {
+    console.error('Failed to create overlay');
+    return;
   }
   
   const now = Date.now();
@@ -312,15 +321,23 @@ function updateTextDisplay() {
   });
 }
 
-function showOverlay() {
-  if (!overlay) {
-    console.error('Overlay element not found, recreating overlay');
-    createOverlay();
+function showOverlay(init=false) {
+  if (!ensureOverlayExists()) {
+    console.error('Failed to create overlay');
+    return;
   }
   
   if (overlay) {
+    // Clear text if overlay was hidden by timer
+    if (init) {
+      console.log('Clearing text buffer due to initialization');
+      textBuffer = new Array(currentSettings.numOfLines).fill('');
+      currentText = '';
+      updateTextDisplay();
+    }
+
     // Only apply initial positioning when first displayed
-    if (overlay.style.display === 'none') {
+    if (overlay.style.display === 'none' || init) {
       if (overlayPosition.left === '50%') {
         // Initial centered position
         overlay.style.left = '50%';
@@ -337,7 +354,6 @@ function showOverlay() {
     
     overlay.style.display = 'flex';
     isVisible = true;
-    console.log('Overlay should now be visible');
     
     // Reset hide timer whenever we show the overlay
     resetHideTimer();
@@ -347,7 +363,7 @@ function showOverlay() {
 }
 
 function hideOverlay() {
-  if (!overlay) return;
+  if (!ensureOverlayExists()) return;
   overlay.style.display = 'none';
   isVisible = false;
   
