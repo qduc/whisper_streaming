@@ -17,35 +17,41 @@ class TranslationProcessor:
         
     def should_translate(self, combined_text, time_since_last, interval, max_buffer_time):
         """
-        Determine if translation should be performed and return the text to translate
+        Determine if translation should be performed and return the text to translate and remainder
         
         Returns:
-            str or None: The text to translate, or None if no translation should be performed
+            tuple: (text_to_translate, remainder) where:
+                - text_to_translate (str or None): The text to translate, or None if no translation should be performed
+                - remainder (str): Any remaining text that wasn't translated, or empty string if none
         """
         text_length = len(combined_text)
         
         # Buffer timeout
         if time_since_last > max_buffer_time:
             logger.debug(f"Buffer time exceeded ({time_since_last:.1f}s > {max_buffer_time}s), translating")
-            return combined_text
+            return combined_text, ""
         
         # Text too short
         if text_length < self.min_text_length:
             logger.debug(f"Text too short for translation ({text_length} chars < {self.min_text_length}), skipping")
-            return None
+            return None, combined_text
             
         sentence_part, remainder = self.translation_manager.split_at_sentence_end(combined_text)
         if sentence_part and len(sentence_part) >= self.min_text_length:
             # logger.debug("Complete sentence found that meets min length, translating")
-            # Return only the complete sentence part
-            return sentence_part
+            return sentence_part, remainder
+        
+        sentence_part, remainder = self.translation_manager.split_at_comma(combined_text)
+        if sentence_part and len(sentence_part) >= self.min_text_length:
+            # logger.debug("Complete sentence found that meets min length, translating")
+            return sentence_part, remainder
                 
         # Text above maximum length - translate immediately
         if text_length >= self.max_text_length:
-            logger.debug(f"Text too long for buffer ({text_length} chars >= {self.max_text_length}), translating immediately")
-            return combined_text
+            logger.debug(f"Text too long ({text_length} chars >= {self.max_text_length}), translating immediately")
+            return combined_text, ""
         
-        return None
+        return None, combined_text
 
 # Updated to use the new async translation method
 async def process_translation(connection, text, text_buffer, last_translation_time,
@@ -90,16 +96,10 @@ async def process_translation(connection, text, text_buffer, last_translation_ti
     time_since_last = current_time - last_translation_time
     
     # Check if translation is needed and get text to translate
-    text_to_translate = processor.should_translate(combined_text, time_since_last, interval, max_buffer_time)
+    text_to_translate, remainder = processor.should_translate(combined_text, time_since_last, interval, max_buffer_time)
     if text_to_translate:
-        # If we're translating a sentence part, keep the remainder in the buffer
-        if text_to_translate != combined_text:
-            _, remainder = translation_manager.split_at_sentence_end(combined_text)
-            text_buffer.clear()
-            if remainder:
-                text_buffer.append(remainder)
-        else:
-            text_buffer.clear()
+        text_buffer.clear()  # Clear buffer after translation
+        text_buffer.append(remainder)
             
         # Perform translation using the returned text
         translated_text = await translation_manager.translate_text_async(text_to_translate)
@@ -234,7 +234,7 @@ class TranslatedServerProcessor(BaseServerProcessor):
         
         # Case 0: Buffer exceeds maximum length - translate immediately
         if text_length >= self.max_text_length:
-            logger.debug(f"Text too long for buffer ({text_length} chars >= {self.max_text_length}), translating immediately")
+            logger.debug(f"Text too long ({text_length} chars >= {self.max_text_length}), translating immediately")
             return True
         
         # Use pre-calculated adaptive min text length

@@ -92,7 +92,7 @@ class BaseServerProcessor:
                 beg = max(beg, self.last_end)
 
             self.last_end = end
-            # print("%1.0f %1.0f %s" % (beg, end, o[2]), flush=True, file=sys.stderr)
+            print("%1.0f %1.0f %s" % (beg, end, o[2]))
             return "%1.0f %1.0f %s" % (beg, end, o[2])
         else:
             logger.debug("No text in this segment")

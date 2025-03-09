@@ -19,7 +19,7 @@ class TranslationManager:
         self.config_path = config_path
         
         # Default system prompt
-        self.default_system_prompt = f"Translate the following speech transcription into {self.target_language} in a natural, fluent way, ensuring clarity and readability. Maintain the original meaning while using wording that sounds natural to a native Vietnamese speaker. Avoid overly literal translations and focus on conveying the message naturally. Output only the translated text without any additional commentary or formatting."
+        self.default_system_prompt = f"Translate the following speech transcription into {self.target_language} in a natural, fluent way, ensuring clarity and readability. The content is about computers and programming, so use the natural language style commonly used by Vietnamese tech professionals. Retain widely used English technical terms instead of translating them into Vietnamese, unless a well-established Vietnamese equivalent exists and is commonly used. Maintain the original meaning while ensuring the translation sounds natural and professional. Output only the translated text without any additional commentary or formatting."
         
         # Load system prompt from config if available
         self.system_prompt = self._load_system_prompt()
@@ -313,6 +313,17 @@ class TranslationManager:
         
         # All sentences are complete
         return ' '.join(sentences).strip(), ""
+    
+    def split_at_comma(self, text):
+        """Split text at the last comma"""
+        if not text:
+            return "", ""
+        
+        last_comma = text.rfind(',')
+        if last_comma == -1:
+            return "", text.strip()
+        
+        return text[:last_comma].strip(), text[last_comma + 1:].strip()
 
     def _manual_split_at_sentence_end(self, text):
         """Manual split at sentence end if NLTK is not available"""
