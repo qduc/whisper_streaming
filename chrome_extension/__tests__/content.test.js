@@ -21,7 +21,20 @@ global.chrome = {
 const fs = require('fs');
 const path = require('path');
 const contentJs = fs.readFileSync(path.resolve(__dirname, '../src/content.js'), 'utf8');
-eval(contentJs);
+
+// Make sure the TranscriptionOverlay is defined in the global scope
+const evaluatedContent = `
+    ${contentJs}
+    if (typeof TranscriptionOverlay !== 'undefined') {
+        global.TranscriptionOverlay = TranscriptionOverlay;
+    }
+`;
+eval(evaluatedContent);
+
+// Verify TranscriptionOverlay is available
+if (typeof global.TranscriptionOverlay !== 'function') {
+    throw new Error('TranscriptionOverlay class not found in content.js. Make sure the class is properly defined and not wrapped in a module or IIFE.');
+}
 
 describe('TranscriptionOverlay', () => {
     let overlay;
@@ -73,6 +86,12 @@ describe('TranscriptionOverlay', () => {
 
             const newOverlay = new TranscriptionOverlay();
             expect(chrome.storage.sync.get).toHaveBeenCalledWith(['transcriptionSettings'], expect.any(Function));
+        });
+
+        test('should apply default settings if no saved settings are found', () => {
+            const newOverlay = new TranscriptionOverlay();
+            expect(newOverlay.config.textSize).toBe('medium');
+            expect(newOverlay.config.overlayOpacity).toBe(0.8);
         });
     });
 
@@ -158,6 +177,12 @@ describe('TranscriptionOverlay', () => {
             const lines = textContainer.getElementsByTagName('div');
             expect(lines.length).toBeLessThanOrEqual(overlay.config.numOfLines);
         });
+
+        test('should clear accumulated text after updating display', () => {
+            const longText = 'This is a much longer text that exceeds the minimum length requirement';
+            overlay.processTranscription(longText);
+            expect(overlay.accumulatedText).toBe('');
+        });
     });
 
     describe('Auto-hide behavior', () => {
@@ -211,6 +236,27 @@ describe('TranscriptionOverlay', () => {
             document.dispatchEvent(mouseupEvent);
             
             expect(chrome.storage.sync.set).toHaveBeenCalled();
+        });
+
+        test('should constrain overlay within viewport during drag', () => {
+            const mousedownEvent = new MouseEvent('mousedown', {
+                clientX: 100,
+                clientY: 100
+            });
+            
+            const mousemoveEvent = new MouseEvent('mousemove', {
+                clientX: window.innerWidth + 100,
+                clientY: window.innerHeight + 100
+            });
+            
+            const mouseupEvent = new MouseEvent('mouseup');
+            
+            overlay.overlay.dispatchEvent(mousedownEvent);
+            document.dispatchEvent(mousemoveEvent);
+            document.dispatchEvent(mouseupEvent);
+            
+            expect(overlay.position.x).toBeLessThanOrEqual(window.innerWidth - overlay.overlay.offsetWidth);
+            expect(overlay.position.y).toBeLessThanOrEqual(window.innerHeight - overlay.overlay.offsetHeight);
         });
     });
 });

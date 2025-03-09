@@ -1,478 +1,207 @@
-// Global variables
-let overlay = null;
-let textContainer = null;
-let isVisible = false;
-let textBuffer = [];
-let currentText = '';
-let lastUpdateTime = 0;
-let updateTimer = null;
-let hideTimer = null;
-// Add drag-related variables
-let isDragging = false;
-let dragOffset = { x: 0, y: 0 };
-let overlayPosition = { left: '50%', top: '80%' }; // Store position as percentage
-let hiddenByTimer = false; // Add a flag to track if overlay was hidden by timer
-
-let currentSettings = {
-  textSize: 'medium',
-  overlayOpacity: 0.8,
-  shortChunkThreshold: 15,   // Legacy setting
-  longChunkThreshold: 80,    // Legacy setting
-  maxLineLength: 100,        // Legacy setting
-  numOfLines: 3,             // Default number of lines in the buffer
-  minLengthToDisplay: 30,    // Minimum text length to display
-  maxIdleTime: 1.5,          // Maximum idle time in seconds before displaying buffer
-  overlayHideTimeout: 15     // Time in seconds before hiding overlay when idle
+// Default configuration
+const DEFAULT_CONFIG = {
+    textSize: 'medium',
+    overlayOpacity: 0.8,
+    numOfLines: 3,
+    minLengthToDisplay: 30,
+    maxIdleTime: 1500, // 1.5 seconds in ms
+    overlayHideTimeout: 15000 // 15 seconds in ms
 };
 
-// Initialize when the content script loads
-initialize();
+class TranscriptionOverlay {
+    constructor() {
+        this.config = { ...DEFAULT_CONFIG };
+        this.textBuffer = [];
+        this.hideTimeoutId = null;
+        this.accumulatedText = '';
+        this.lastUpdateTime = Date.now();
+        this.position = null;
+        this.initialize();
+    }
 
-function initialize() {
-  // Create overlay elements but keep them hidden initially
-  createOverlay();
-  
-  // Load user settings
-  loadSettings();
-  
-  // Listen for messages from background script
-  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    console.log('Received message:', message);
-    
-    try {
-      if (message.action === 'updateTranscription') {
-        updateTranscriptionText(message);
-      }
-      else if (message.action === 'showOverlay') {
-        console.log('Show overlay command received');
-        if (message.settings) {
-          console.log('Applying settings:', message.settings);
-          currentSettings = {...currentSettings, ...message.settings};
-          applySettings();
+    initialize() {
+        // Create overlay container
+        this.overlay = document.createElement('div');
+        this.overlay.id = 'whisper-transcription-overlay';
+        this.applyOverlayStyles();
+        
+        // Create text container
+        this.textContainer = document.createElement('div');
+        this.textContainer.id = 'whisper-text-container';
+        this.overlay.appendChild(this.textContainer);
+        
+        // Add to DOM but keep hidden
+        document.body.appendChild(this.overlay);
+        
+        // Load saved position
+        chrome.storage.sync.get(['overlayPosition'], (result) => {
+            if (result.overlayPosition) {
+                this.position = result.overlayPosition;
+                this.applyPosition();
+            }
+        });
+
+        // Load saved settings
+        chrome.storage.sync.get(['transcriptionSettings'], (result) => {
+            if (result.transcriptionSettings) {
+                this.updateConfig(result.transcriptionSettings);
+            }
+        });
+
+        this.setupDragging();
+        this.setupMessageListeners();
+    }
+
+    applyOverlayStyles() {
+        const styles = {
+            position: 'fixed',
+            bottom: '50px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+            color: 'white',
+            padding: '10px 20px',
+            borderRadius: '8px',
+            zIndex: '9999',
+            transition: 'opacity 0.3s ease',
+            maxWidth: '80%',
+            display: 'none',
+            cursor: 'move',
+            userSelect: 'none'
+        };
+
+        Object.assign(this.overlay.style, styles);
+    }
+
+    setupDragging() {
+        let isDragging = false;
+        let currentX;
+        let currentY;
+        let initialX;
+        let initialY;
+
+        this.overlay.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            initialX = e.clientX - this.overlay.offsetLeft;
+            initialY = e.clientY - this.overlay.offsetTop;
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (isDragging) {
+                e.preventDefault();
+                currentX = e.clientX - initialX;
+                currentY = e.clientY - initialY;
+
+                // Constrain to viewport
+                currentX = Math.max(0, Math.min(currentX, window.innerWidth - this.overlay.offsetWidth));
+                currentY = Math.max(0, Math.min(currentY, window.innerHeight - this.overlay.offsetHeight));
+
+                this.position = { x: currentX, y: currentY };
+                this.applyPosition();
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (isDragging) {
+                isDragging = false;
+                // Save position
+                chrome.storage.sync.set({ overlayPosition: this.position });
+            }
+        });
+    }
+
+    applyPosition() {
+        if (this.position) {
+            this.overlay.style.left = `${this.position.x}px`;
+            this.overlay.style.top = `${this.position.y}px`;
+            this.overlay.style.transform = 'none';
         }
-        showOverlay(true);
-      }
-      else if (message.action === 'hideOverlay') {
-        console.log('Hide overlay command received');
-        stopTranscription();
-      }
-      else if (message.action === 'settingsUpdated') {
-        console.log('Settings update received:', message.settings);
-        currentSettings = {...currentSettings, ...message.settings};
-        applySettings();
-      }
-      else {
-        console.log('Unknown action received:', message.action);
-      }
-      
-      // Return true to indicate async response handling if needed
-      return true;
-    } catch (error) {
-      console.error('Error processing message:', error);
-    }
-  });
-}
-
-function loadSettings() {
-  chrome.storage.sync.get('settings', (data) => {
-    if (data.settings) {
-      // Apply all saved settings
-      if (data.settings.shortChunkThreshold) {
-        currentSettings.shortChunkThreshold = data.settings.shortChunkThreshold;
-      }
-      if (data.settings.longChunkThreshold) {
-        currentSettings.longChunkThreshold = data.settings.longChunkThreshold;
-      }
-      if (data.settings.maxLineLength) {
-        currentSettings.maxLineLength = data.settings.maxLineLength;
-      }
-      if (data.settings.numOfLines) {
-        currentSettings.numOfLines = data.settings.numOfLines;
-      }
-      if (data.settings.minLengthToDisplay) {
-        currentSettings.minLengthToDisplay = data.settings.minLengthToDisplay;
-      }
-      if (data.settings.maxIdleTime) {
-        currentSettings.maxIdleTime = data.settings.maxIdleTime;
-      }
-      if (data.settings.overlayHideTimeout) {
-        currentSettings.overlayHideTimeout = data.settings.overlayHideTimeout;
-      }
-      console.log('Loaded settings:', currentSettings);
-      
-      // Initialize buffer with empty lines based on numOfLines setting
-      initializeBuffer();
-    }
-  });
-}
-
-function initializeBuffer() {
-  // Initialize buffer with the correct number of empty lines
-  textBuffer = new Array(currentSettings.numOfLines).fill('');
-}
-
-function createOverlay() {
-  // Check if overlay already exists
-  if (document.getElementById('whisper-transcription-overlay')) {
-    console.log('Overlay already exists, reusing existing element');
-    overlay = document.getElementById('whisper-transcription-overlay');
-    textContainer = document.getElementById('whisper-transcription-text');
-    return;
-  }
-  
-  // Create main overlay container
-  overlay = document.createElement('div');
-  overlay.id = 'whisper-transcription-overlay';
-  overlay.style.cssText = `
-    position: fixed;
-    left: 50%;
-    transform: translateX(-50%);
-    width: auto;     /* Changed from fixed 40% to auto */
-    max-width: 80%;  /* Added max-width to prevent too wide overlay */
-    background-color: rgba(0, 0, 0, 0.7);
-    color: white;
-    z-index: 10000;
-    padding: 15px;
-    border-radius: 8px;
-    font-family: Arial, sans-serif;
-    display: none;  /* Initially hidden but will be changed to flex when shown */
-    flex-direction: column;
-    align-items: center;  /* Center text horizontally */
-    justify-content: flex-start;  /* Align from top for proper line display */
-    overflow: hidden;
-    opacity: 0.8;
-    cursor: move;
-    height: auto;  /* Allow height to adjust based on content */
-    min-height: 20px;
-    min-width: 200px; /* Added min-width to ensure it's never too small */
-    user-select: none;
-    transition: max-width 0.3s ease;  /* Smooth transition for width changes */
-  `;
-  
-  // Add drag event listeners
-  overlay.addEventListener('mousedown', startDragging);
-  document.addEventListener('mousemove', handleDrag);
-  document.addEventListener('mouseup', stopDragging);
-  
-  // Add window resize listener
-  window.addEventListener('resize', handleWindowResize);
-
-  // Create container for transcription text
-  textContainer = document.createElement('div');
-  textContainer.id = 'whisper-transcription-text';
-  textContainer.style.cssText = `
-    width: 100%;
-    font-size: 18px;
-    line-height: 1.4;
-    text-align: center;  /* Center text */
-    display: flex;
-    flex-direction: column;
-  `;
-  
-  // Initialize textBuffer and create line elements
-  initializeBuffer();
-  updateTextDisplay();
-  
-  // Append container to overlay
-  overlay.appendChild(textContainer);
-  document.body.appendChild(overlay);
-}
-
-// Add new drag handling functions
-function startDragging(e) {
-  isDragging = true;
-  const rect = overlay.getBoundingClientRect();
-  
-  // Store the initial dimensions
-  const width = rect.width;
-  
-  // Remove transform and set absolute positioning
-  overlay.style.transform = 'none';
-  overlay.style.bottom = 'auto';
-  overlay.style.left = rect.left + 'px';
-  overlay.style.top = rect.top + 'px';
-  overlay.style.width = width + 'px';
-  
-  dragOffset = {
-    x: e.clientX - rect.left,
-    y: e.clientY - rect.top
-  };
-  
-  // Prevent text selection during drag
-  e.preventDefault();
-}
-
-function handleDrag(e) {
-  if (!isDragging) return;
-  
-  const x = e.clientX - dragOffset.x;
-  const y = e.clientY - dragOffset.y;
-  
-  // Ensure the overlay stays within viewport bounds
-  const rect = overlay.getBoundingClientRect();
-  const maxX = window.innerWidth - rect.width;
-  const maxY = window.innerHeight - rect.height;
-  
-  overlay.style.left = `${Math.min(Math.max(0, x), maxX)}px`;
-  overlay.style.top = `${Math.min(Math.max(0, y), maxY)}px`;
-}
-
-function stopDragging() {
-  if (isDragging) {
-    // Save the current position for future use
-    overlayPosition.left = overlay.style.left;
-    overlayPosition.top = overlay.style.top;
-  }
-  isDragging = false;
-}
-
-function ensureOverlayExists() {
-  if (!overlay) {
-    console.log('Overlay not found, recreating overlay');
-    createOverlay();
-  }
-  return overlay !== null;
-}
-
-function updateTranscriptionText(message) {
-  if (!ensureOverlayExists()) {
-    console.error('Failed to create overlay');
-    return;
-  }
-  
-  const now = Date.now();
-  
-  // Reset timer if it exists
-  if (updateTimer) {
-    clearTimeout(updateTimer);
-  }
-
-  let text = '';
-  if (message.text) {
-    text = message.text.trim();
-    
-    // If this is a translation, format it differently
-    if (message.isTranslation) {
-      currentText = text;
-      // currentText += (currentText ? ' ' : '') + text;
-    } else {
-      // Append new text to our current accumulating text
-      currentText += (currentText ? ' ' : '') + text;
-    }
-  }
-
-  // Check if we should update the display based on conditions
-  const shouldUpdateDisplay = 
-    // message.isFinal || // Always update for translations or final segments
-    currentText.length >= currentSettings.minLengthToDisplay || 
-    (now - lastUpdateTime > currentSettings.maxIdleTime * 1000 && currentText.trim() !== '');
-  
-  if (shouldUpdateDisplay) {
-    // Push to buffer and shift out oldest item
-    if (currentText.trim()) {
-      textBuffer.push(currentText.trim());
-      textBuffer.shift();
-    }
-    
-    // Update the display
-    updateTextDisplay();
-    
-    // Reset the current text accumulation if not a translation
-    if (!message.isTranslation) {
-      currentText = '';
-    }
-    lastUpdateTime = now;
-  } else {
-    // Set a timer to check again after max idle time
-    updateTimer = setTimeout(() => {
-      // If we still have accumulated text, update the display
-      if (currentText.trim()) {
-        textBuffer.push(currentText.trim());
-        textBuffer.shift();
-        updateTextDisplay();
-        currentText = '';
-      }
-    }, currentSettings.maxIdleTime * 1000);
-  }
-  
-  lastUpdateTime = now;
-  
-  // Show overlay and reset hide timer
-  showOverlay();
-}
-
-function updateTextDisplay() {
-  // Clear the existing content
-  textContainer.innerHTML = '';
-  
-  // Create and add elements for each line in the buffer
-  textBuffer.forEach((line, index) => {
-    const lineElement = document.createElement('div');
-    lineElement.id = `transcription-line-${index}`;
-    lineElement.textContent = line;
-    lineElement.style.cssText = `
-      width: 100%;
-      margin-bottom: 6px;
-      color: ${index < textBuffer.length - 1 ? '#cccccc' : 'white'};
-      transition: opacity 0.3s ease;
-    `;
-    
-    textContainer.appendChild(lineElement);
-  });
-}
-
-function showOverlay(init=false) {
-  if (!ensureOverlayExists()) {
-    console.error('Failed to create overlay');
-    return;
-  }
-  
-  if (overlay) {
-    // Clear text if overlay was hidden by timer
-    if (init) {
-      console.log('Clearing text buffer due to initialization');
-      textBuffer = new Array(currentSettings.numOfLines).fill('');
-      currentText = '';
-      updateTextDisplay();
     }
 
-    // Only apply initial positioning when first displayed
-    if (overlay.style.display === 'none' || init) {
-      if (overlayPosition.left === '50%') {
-        // Initial centered position
-        overlay.style.left = '50%';
-        overlay.style.top = '80%';
-        overlay.style.transform = 'translateX(-50%)';
-      } else {
-        // Use saved position from dragging
-        overlay.style.transform = 'none';
-        overlay.style.bottom = 'auto';
-        overlay.style.left = overlayPosition.left;
-        overlay.style.top = overlayPosition.top;
-      }
+    setupMessageListeners() {
+        chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+            switch (message.action) {
+                case 'updateTranscription':
+                    this.processTranscription(message.text);
+                    break;
+                case 'showOverlay':
+                    this.show();
+                    break;
+                case 'hideOverlay':
+                    this.hide();
+                    break;
+                case 'settingsUpdated':
+                    this.updateConfig(message.settings);
+                    break;
+            }
+            sendResponse({ success: true });
+        });
     }
-    
-    overlay.style.display = 'flex';
-    isVisible = true;
-    
-    // Reset hide timer whenever we show the overlay
-    resetHideTimer();
-  } else {
-    console.error('Failed to create or find overlay element');
-  }
-}
 
-function stopTranscription() {
-  hideOverlay();
-  textBuffer = [];
-  updateTextDisplay();
-}
-
-function hideOverlay() {
-  if (!ensureOverlayExists()) return;
-  overlay.style.display = 'none';
-  isVisible = false; 
-}
-
-function resetHideTimer() {
-  // Clear existing timer if any
-  if (hideTimer) {
-    clearTimeout(hideTimer);
-  }
-  
-  // Set new timer
-  hideTimer = setTimeout(() => {
-    if (isVisible) {
-      hideOverlay();
+    processTranscription(text) {
+        this.accumulatedText += text;
+        const currentTime = Date.now();
+        
+        if (this.accumulatedText.length >= this.config.minLengthToDisplay ||
+            currentTime - this.lastUpdateTime >= this.config.maxIdleTime) {
+            this.updateDisplay(this.accumulatedText);
+            this.accumulatedText = '';
+            this.lastUpdateTime = currentTime;
+        }
     }
-  }, currentSettings.overlayHideTimeout * 1000);
+
+    updateDisplay(text) {
+        if (!text.trim()) return;
+
+        this.textBuffer.push(text);
+        while (this.textBuffer.length > this.config.numOfLines) {
+            this.textBuffer.shift();
+        }
+
+        this.textContainer.innerHTML = this.textBuffer.map((line, index) => {
+            const opacity = 0.5 + (0.5 * (index / (this.textBuffer.length - 1)));
+            return `<div style="opacity: ${opacity}">${line}</div>`;
+        }).join('');
+
+        this.show();
+    }
+
+    show() {
+        this.overlay.style.display = 'block';
+        this.resetHideTimeout();
+    }
+
+    hide() {
+        this.overlay.style.display = 'none';
+        this.textBuffer = [];
+        this.accumulatedText = '';
+    }
+
+    resetHideTimeout() {
+        if (this.hideTimeoutId) {
+            clearTimeout(this.hideTimeoutId);
+        }
+        this.hideTimeoutId = setTimeout(() => this.hide(), this.config.overlayHideTimeout);
+    }
+
+    updateConfig(newConfig) {
+        this.config = { ...this.config, ...newConfig };
+        this.applyConfig();
+    }
+
+    applyConfig() {
+        // Apply text size
+        const fontSizes = {
+            small: '14px',
+            medium: '18px',
+            large: '24px'
+        };
+        this.textContainer.style.fontSize = fontSizes[this.config.textSize];
+        
+        // Apply opacity
+        this.overlay.style.backgroundColor = `rgba(0, 0, 0, ${this.config.overlayOpacity})`;
+    }
 }
 
-function applySettings() {
-  if (!overlay || !textContainer) return;
-  
-  // Apply text size
-  let fontSize = '18px';
-  switch (currentSettings.textSize) {
-    case 'small':
-      fontSize = '14px';
-      break;
-    case 'large':
-      fontSize = '22px';
-      break;
-    default:
-      fontSize = '18px';
-  }
-  
-  textContainer.style.fontSize = fontSize;
-  
-  // Apply opacity
-  overlay.style.opacity = currentSettings.overlayOpacity || 0.8;
-  
-  // Update buffer size if number of lines changed
-  if (textBuffer.length !== currentSettings.numOfLines) {
-    // Create a new buffer with the new size
-    const newBuffer = new Array(currentSettings.numOfLines).fill('');
-    
-    // Copy existing items, prioritizing the most recent ones
-    const startIdx = Math.max(0, textBuffer.length - currentSettings.numOfLines);
-    for (let i = 0; i < Math.min(textBuffer.length, currentSettings.numOfLines); i++) {
-      newBuffer[newBuffer.length - i - 1] = textBuffer[textBuffer.length - i - 1] || '';
-    }
-    
-    textBuffer = newBuffer;
-    updateTextDisplay();
-  }
-}
-
-// Add window resize handler function
-function handleWindowResize() {
-  if (!overlay) return;
-  
-  // If the overlay is using absolute positioning (was dragged)
-  if (overlay.style.transform !== 'translateX(-50%)') {
-    // Get current overlay dimensions
-    const rect = overlay.getBoundingClientRect();
-    
-    // Ensure it stays within viewport bounds
-    const maxX = window.innerWidth - rect.width;
-    const maxY = window.innerHeight - rect.height;
-    
-    // Update position if needed
-    if (parseFloat(overlay.style.left) > maxX) {
-      overlay.style.left = `${maxX}px`;
-    }
-    
-    if (parseFloat(overlay.style.top) > maxY) {
-      overlay.style.top = `${maxY}px`;
-    }
-  } else {
-    // For centered overlay, just ensure max-width is appropriate
-    // This happens automatically via CSS, but you could add custom logic here
-  }
-  
-  // Update stored position
-  overlayPosition.left = overlay.style.left;
-  overlayPosition.top = overlay.style.top;
-}
-
-// Add this function to handle cleanup when extension is deactivated
-function cleanup() {
-  // Remove event listeners
-  if (overlay) {
-    overlay.removeEventListener('mousedown', startDragging);
-  }
-  document.removeEventListener('mousemove', handleDrag);
-  document.removeEventListener('mouseup', stopDragging);
-  window.removeEventListener('resize', handleWindowResize);
-  
-  // Remove overlay from DOM if it exists
-  if (overlay && overlay.parentNode) {
-    overlay.parentNode.removeChild(overlay);
-  }
-  
-  // Reset variables
-  overlay = null;
-  textContainer = null;
-  isVisible = false;
-}
+// Initialize overlay when content script loads
+const transcriptionOverlay = new TranscriptionOverlay();

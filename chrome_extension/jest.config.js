@@ -5,6 +5,7 @@ module.exports = {
   },
   moduleFileExtensions: ['js'],
   moduleDirectories: ['node_modules'],
-  testPathIgnorePatterns: ['/node_modules/'],
-  setupFilesAfterEnv: ['<rootDir>/__tests__/setup.js'],
+  testPathIgnorePatterns: ['/node_modules/', 'setup.js'],
+  testMatch: ['**/__tests__/**/*.test.js'],
+  // setupFilesAfterEnv: ['<rootDir>/__tests__/setup.js'],
 };

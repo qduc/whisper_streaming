@@ -103,6 +103,11 @@ export class WebSocketClient {
         }
       }
     } catch (error) {
+      // Handle parsing error
+      if (error instanceof SyntaxError) {
+        console.error('Invalid JSON received:', data);
+      }
+
       console.error('Error parsing WebSocket message:', error);
     }
   }
