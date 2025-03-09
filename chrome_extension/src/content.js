@@ -54,7 +54,7 @@ function initialize() {
       }
       else if (message.action === 'hideOverlay') {
         console.log('Hide overlay command received');
-        hideOverlay();
+        stopTranscription();
       }
       else if (message.action === 'settingsUpdated') {
         console.log('Settings update received:', message.settings);
@@ -362,15 +362,16 @@ function showOverlay(init=false) {
   }
 }
 
+function stopTranscription() {
+  hideOverlay();
+  textBuffer = [];
+  updateTextDisplay();
+}
+
 function hideOverlay() {
   if (!ensureOverlayExists()) return;
   overlay.style.display = 'none';
-  isVisible = false;
-  
-  // Don't clear the text buffer when hiding overlay
-  // Text should persist between hide/show events
-  // textBuffer = [];
-  // updateTextDisplay();
+  isVisible = false; 
 }
 
 function resetHideTimer() {
