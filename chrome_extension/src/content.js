@@ -67,7 +67,10 @@ class TranscriptionOverlay {
             maxWidth: '80%',
             display: 'none',
             cursor: 'move',
-            userSelect: 'none'
+            userSelect: 'none',
+            textShadow: '0px 1px 2px rgba(0, 0, 0, 0.8)',
+            fontFamily: 'Arial, Helvetica, sans-serif',
+            boxShadow: '0 4px 8px rgba(0, 0, 0, 0.3)'
         };
 
         Object.assign(this.overlay.style, styles);
@@ -160,7 +163,7 @@ class TranscriptionOverlay {
 
         this.textContainer.innerHTML = this.textBuffer.map((line, index) => {
             const opacity = 0.5 + (0.5 * (index / (this.textBuffer.length - 1)));
-            return `<div style="opacity: ${opacity}">${line}</div>`;
+            return `<div style="opacity: ${opacity}; margin-bottom: 5px; text-shadow: 0px 0px 1px #000, 0px 0px 2px #000; letter-spacing: 0.3px;">${line}</div>`;
         }).join('');
 
         this.show();
@@ -200,6 +203,11 @@ class TranscriptionOverlay {
         
         // Apply opacity
         this.overlay.style.backgroundColor = `rgba(0, 0, 0, ${this.config.overlayOpacity})`;
+        
+        // Apply enhanced readability styles
+        this.textContainer.style.lineHeight = '1.4';
+        this.textContainer.style.fontWeight = '500';
+        this.textContainer.style.textAlign = 'center';
     }
 }
 
