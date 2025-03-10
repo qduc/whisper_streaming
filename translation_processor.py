@@ -182,10 +182,12 @@ class AdaptiveTranslationBuffer:
             
         sentence_part, remainder = self.translation_manager.split_at_sentence_end(combined_text)
         if sentence_part and len(sentence_part) >= self.adaptive_min_text_length:
+            logger.debug(f"Found complete sentence for translation, remains: {remainder}")
             return sentence_part, remainder
         
         sentence_part, remainder = self.translation_manager.split_at_comma(combined_text)
         if sentence_part and len(sentence_part) >= self.adaptive_min_text_length:
+            logger.debug(f"Found partial sentence for translation, remains: {remainder}")
             return sentence_part, remainder
                 
         # Text above maximum length - translate immediately
@@ -194,67 +196,7 @@ class AdaptiveTranslationBuffer:
             return combined_text, ""
         
         # Enough time has passed and we have minimum text
-        if time_since_last > self.translation_interval and text_length >= self.adaptive_min_text_length:
-            return combined_text, ""
+        # if time_since_last > self.translation_interval and text_length >= self.adaptive_min_text_length:
+        #     return combined_text, ""
             
         return None, combined_text
-        
-    def should_translate(self):
-        """Determine if we should translate the current buffer"""
-        text_to_translate, _ = self.get_text_to_translate()
-        return text_to_translate is not None
-
-# async def process_translation(connection, text, text_buffer, last_translation_time,
-#                       target_language='en', model="gemini-2.0-flash", 
-#                       provider='gemini', interval=4.0, max_buffer_time=5.0,
-#                       min_text_length=20, inactivity_timeout=2.0, translation_manager=None):
-#     """Process text for translation in the websocket server context"""
-#     if translation_manager is None:
-#         logger.info(f"Creating new TranslationManager with target language {target_language}")
-#         translation_manager = TranslationManager(
-#             target_language=target_language,
-#             model=model,
-#             translation_provider=provider
-#         )
-    
-#     # Create or use existing buffer
-#     buffer = AdaptiveTranslationBuffer(
-#         translation_manager=translation_manager,
-#         min_text_length=min_text_length,
-#         translation_interval=interval,
-#         max_buffer_time=max_buffer_time,
-#         inactivity_timeout=inactivity_timeout
-#     )
-    
-#     # Add text to the buffer
-#     current_time = time.time()
-#     buffer.add_text(text, current_time, current_time)
-    
-#     # Check if we should translate
-#     text_to_translate, remainder = buffer.get_text_to_translate()
-    
-#     if text_to_translate:
-#         text_buffer.clear()
-#         if remainder:
-#             text_buffer.append(remainder)
-            
-#         translated_text = await translation_manager.translate_text_async(text_to_translate)
-        
-#         try:
-#             msg = json.dumps({
-#                 "type": "translation",
-#                 "original": text_to_translate,
-#                 "translation": translated_text
-#             })
-            
-#             if hasattr(connection, 'websocket'):
-#                 await connection.send(msg)
-#             else:
-#                 connection.send(msg)
-                
-#         except Exception as e:
-#             logger.error(f"Error sending translation: {e}")
-        
-#         buffer.last_translation_time = time.time()
-    
-#     return translation_manager

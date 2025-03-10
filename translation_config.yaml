@@ -13,7 +13,10 @@ translation:
   inactivity_timeout: 6.0  # Seconds of inactivity before translating remaining buffer
   
   # Text processing settings
-  min_text_length: 10      # Minimum text length to consider for translation (characters)
+  min_text_length: 40      # Minimum text length to consider for translation (characters)
+
+  # History settings
+  history_size: 3
   
   # Translation system prompt
   # Leave empty to use the default system prompt

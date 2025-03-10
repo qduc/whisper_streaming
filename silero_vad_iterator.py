@@ -9,10 +9,10 @@ import torch
 class VADIterator:
     def __init__(self,
                  model,
-                 threshold: float = 0.5,
+                 threshold: float = 0.7,
                  sampling_rate: int = 16000,
-                 min_silence_duration_ms: int = 3000,  # makes sense on one recording that I checked
-                 speech_pad_ms: int = 900             # same 
+                 min_silence_duration_ms: int = 1000,  # makes sense on one recording that I checked
+                 speech_pad_ms: int = 400             # same
                  ):
 
         """

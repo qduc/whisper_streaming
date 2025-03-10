@@ -94,18 +94,22 @@ class TranslatedServerProcessor(BaseServerProcessor):
             # })
             
             # Check if we should translate now
-            if self.translation_buffer.should_translate():
-                await self._process_translation_buffer()
+            text_to_translate, remainder = self.translation_buffer.get_text_to_translate()
+            if text_to_translate:
+                await self._process_translation_buffer(text_to_translate)
+                # Update the buffer with the remaining text
+                if remainder:
+                    self.translation_buffer.add_text(remainder, beg, end)
         else:
             logger.debug("No text in this segment")
             
-    async def _process_translation_buffer(self) -> None:
+    async def _process_translation_buffer(self, text) -> None:
         """Process and translate the current buffer contents"""
-        combined_text = self.translation_buffer.get_combined_text()
         start_time, end_time = self.translation_buffer.get_time_bounds()
         
         # Translate the text
-        translated_text = await self.translation_manager.translate_text_async(combined_text)
+        # translated_text = await self.translation_manager.translate_text_async(text)
+        translated_text = text
         
         logger.info(f"TRA {round(start_time/1000, 2)}-{round(end_time/1000, 2)}: {translated_text}")
         
@@ -114,7 +118,7 @@ class TranslatedServerProcessor(BaseServerProcessor):
             "type": "translation",
             "start": start_time,
             "end": end_time,
-            "original": combined_text,
+            "original": text,
             "translation": translated_text
         })
         
@@ -122,17 +126,6 @@ class TranslatedServerProcessor(BaseServerProcessor):
         self.translation_buffer.clear_buffer()
         self.translation_buffer.update_adaptive_min_length()
             
-    async def check_inactivity_timeout(self) -> bool:
-        """Check if we should translate the buffer due to inactivity"""
-        if self.translation_buffer.should_translate():
-            try:
-                await self._process_translation_buffer()
-            except BrokenPipeError:
-                logger.info("broken pipe sending timeout buffer -- connection closed")
-                return True
-            return True
-        return False
-        
     async def process(self) -> None:
         """Main processing loop with proper cleanup"""
         self.online_asr_proc.init()
@@ -145,10 +138,6 @@ class TranslatedServerProcessor(BaseServerProcessor):
 
                 a = self.receive_audio_chunk()
                 
-                # Handle inactivity timeout
-                if await self.check_inactivity_timeout() and a is None:
-                    break
-                    
                 if a is None:
                     break
                     
@@ -163,7 +152,7 @@ class TranslatedServerProcessor(BaseServerProcessor):
             # Process remaining buffer
             if self.translation_buffer.text_buffer:
                 try:
-                    await self._process_translation_buffer()
+                    await self._process_translation_buffer(self.translation_buffer.text_buffer)
                 except BrokenPipeError:
                     logger.info("broken pipe sending final buffer -- connection closed")
                     
