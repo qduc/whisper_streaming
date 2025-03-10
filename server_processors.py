@@ -108,8 +108,7 @@ class TranslatedServerProcessor(BaseServerProcessor):
         start_time, end_time = self.translation_buffer.get_time_bounds()
         
         # Translate the text
-        # translated_text = await self.translation_manager.translate_text_async(text)
-        translated_text = text
+        translated_text = await self.translation_manager.translate_text_async(text)
         
         logger.info(f"TRA {round(start_time/1000, 2)}-{round(end_time/1000, 2)}: {translated_text}")
         
@@ -125,7 +124,7 @@ class TranslatedServerProcessor(BaseServerProcessor):
         # Clear the buffer and update adaptive length
         self.translation_buffer.clear_buffer()
         self.translation_buffer.update_adaptive_min_length()
-            
+
     async def process(self) -> None:
         """Main processing loop with proper cleanup"""
         self.online_asr_proc.init()
@@ -137,7 +136,7 @@ class TranslatedServerProcessor(BaseServerProcessor):
                     break
 
                 a = self.receive_audio_chunk()
-                
+
                 if a is None:
                     break
                     
