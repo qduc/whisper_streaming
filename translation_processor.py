@@ -166,14 +166,14 @@ class AdaptiveTranslationBuffer:
         text_length = len(combined_text)
         
         # Check for inactivity timeout
-        if (current_time - self.last_text_time) > self.inactivity_timeout:
-            logger.debug(f"Inactivity timeout exceeded ({current_time - self.last_text_time:.1f}s > {self.inactivity_timeout}s), translating")
-            return combined_text, ""
+        # if (current_time - self.last_text_time) > self.inactivity_timeout:
+        #     logger.debug(f"Inactivity timeout exceeded ({current_time - self.last_text_time:.1f}s > {self.inactivity_timeout}s), translating")
+        #     return combined_text, ""
             
         # Buffer timeout
-        if time_since_last > self.max_buffer_time:
-            logger.debug(f"Buffer time exceeded ({time_since_last:.1f}s > {self.max_buffer_time}s), translating")
-            return combined_text, ""
+        # if time_since_last > self.max_buffer_time:
+        #     logger.debug(f"Buffer time exceeded ({time_since_last:.1f}s > {self.max_buffer_time}s), translating")
+        #     return combined_text, ""
         
         # Text too short
         if text_length < self.adaptive_min_text_length:
