@@ -57,7 +57,8 @@ class ServerConfig:
             max_buffer_time=args.max_buffer_time or config.get('max_buffer_time', 10.0),
             min_text_length=args.min_text_length or config.get('min_text_length', 20),
             inactivity_timeout=args.inactivity_timeout or config.get('inactivity_timeout', 2.0),
-            system_prompt=config.get('system_prompt')
+            system_prompt=config.get('system_prompt'),
+            history_size=config.get('history_size', 3)
         )
 
 def load_config(config_path: str) -> dict:

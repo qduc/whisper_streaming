@@ -27,7 +27,8 @@ class TranslationConfig:
                  max_buffer_time: float = 10.0,
                  min_text_length: int = 20,
                  inactivity_timeout: float = 2.0,
-                 system_prompt: Optional[str] = None):
+                 system_prompt: Optional[str] = None,
+                 history_size: int = 3):
         self.target_language = target_language
         self.model = model
         self.provider = provider
@@ -36,3 +37,4 @@ class TranslationConfig:
         self.min_text_length = min_text_length
         self.inactivity_timeout = inactivity_timeout
         self.system_prompt = system_prompt
+        self.history_size = history_size

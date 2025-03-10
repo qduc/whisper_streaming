@@ -16,7 +16,6 @@ class TranslationManager:
     def __init__(self, 
                  config: TranslationConfig,
                  provider: Optional[TranslationProvider] = None,
-                 history_size: int = 4, 
                  max_history_tokens: int = 200):
         self.config = config
         self.provider = provider or TranslationProviderFactory.create_provider(config.provider)
@@ -27,7 +26,7 @@ class TranslationManager:
         self.cache_queue = deque()
         
         # Translation history settings
-        self.translation_history = deque(maxlen=history_size)
+        self.translation_history = deque(maxlen=config.history_size)
         self.max_history_tokens = max_history_tokens
         
         # Punctuation that likely indicates a sentence end
@@ -38,7 +37,9 @@ class TranslationManager:
         self._translation_lock = asyncio.Lock()
         self._translation_in_progress = False
         self._translation_task = None
-
+        
+        logger.info(f"Translation history enabled with size: {config.history_size}")
+        
         # Initialize NLTK
         try:
             import nltk
@@ -64,11 +65,16 @@ class TranslationManager:
                 self._translation_in_progress = True
 
                 try:
+                    # Get recent history items as context for the translation
+                    history_items = list(self.translation_history)
+                    
+                    # Pass history to translation provider if available
                     result = await self.provider.translate_text(
                         text=text,
                         target_language=self.config.target_language,
                         model=self.config.model,
-                        system_prompt=self.config.system_prompt
+                        system_prompt=self.config.system_prompt,
+                        history=history_items if history_items else None
                     )
                     
                     # Cache the result
@@ -80,6 +86,8 @@ class TranslationManager:
                     self.translation_cache[text] = result
                     self.cache_queue.append(text)
                     self.translation_history.append((text, result))
+                    
+                    logger.debug(f"Translation completed with history size: {len(history_items)}")
                     
                 finally:
                     self._translation_in_progress = False
