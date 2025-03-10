@@ -1,5 +1,9 @@
 # whisper_streaming
-Whisper realtime streaming for long speech-to-text transcription and translation
+
+This repository is a fork of [whisper_streaming](https://github.com/ufal/whisper_streaming) by Dominik Macháček. Special thanks to the original author and contributors for their excellent base implementation.
+
+## Overview
+Extended implementation of Whisper realtime streaming for long speech-to-text transcription and translation. This fork builds upon the original work to provide additional features and improvements.
 
 **Turning Whisper into Real-Time Transcription System**
 
