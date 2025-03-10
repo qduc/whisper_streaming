@@ -66,6 +66,10 @@ class TranslatedServerProcessor(BaseServerProcessor):
             inactivity_timeout=translation_config.inactivity_timeout
         )
         
+        # Initialize timer for checking leftover text
+        self.timer_task = None
+        self.inactivity_timeout = translation_config.inactivity_timeout
+        
     async def send_websocket(self, msg: Dict[str, Any]) -> None:
         """Helper method to send websocket messages asynchronously"""
         await self.connection.send(json.dumps(msg))
@@ -124,19 +128,44 @@ class TranslatedServerProcessor(BaseServerProcessor):
         # Clear the buffer and update adaptive length
         self.translation_buffer.clear_buffer()
         self.translation_buffer.update_adaptive_min_length()
-
+    
+    async def _check_leftover_text(self) -> None:
+        """Periodically check for and process leftover text in the buffer"""
+        while not self.connection.is_closed():
+            try:
+                if self.translation_buffer.text_buffer:
+                    current_time = time.time()
+                    # Check if it's been long enough since the last text was added
+                    time_since_last_text = current_time - self.translation_buffer.last_text_time
+                    
+                    if time_since_last_text >= self.inactivity_timeout:
+                        combined_text = self.translation_buffer.get_combined_text()
+                        logger.debug(f"Inactivity timeout exceeded ({time_since_last_text:.1f}s >= {self.inactivity_timeout}s), translating leftover text")
+                        await self._process_translation_buffer(combined_text)
+                
+                # Sleep before next check
+                await asyncio.sleep(1.0)  # Check every second
+                
+            except asyncio.CancelledError:
+                logger.debug("Leftover text check timer canceled")
+                break
+            except Exception as e:
+                logger.error(f"Error in leftover text check: {e}")
+    
     async def process(self) -> None:
         """Main processing loop with proper cleanup"""
         self.online_asr_proc.init()
+        
+        # Start the timer to check for leftover text
+        self.timer_task = asyncio.create_task(self._check_leftover_text())
+        
         try:
             while True:
                 # Check for closed WebSocket
                 if self.connection.is_closed():
                     logger.info("WebSocket connection closed gracefully")
                     break
-
                 a = self.receive_audio_chunk()
-
                 if a is None:
                     break
                     
@@ -151,10 +180,18 @@ class TranslatedServerProcessor(BaseServerProcessor):
             # Process remaining buffer
             if self.translation_buffer.text_buffer:
                 try:
-                    await self._process_translation_buffer(self.translation_buffer.text_buffer)
+                    await self._process_translation_buffer(self.translation_buffer.get_combined_text())
                 except BrokenPipeError:
                     logger.info("broken pipe sending final buffer -- connection closed")
                     
         except Exception as e:
             logger.error(f"Error in processor: {e}")
             raise
+        finally:
+            # Clean up the timer task
+            if self.timer_task:
+                self.timer_task.cancel()
+                try:
+                    await self.timer_task
+                except asyncio.CancelledError:
+                    pass
