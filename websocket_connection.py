@@ -8,27 +8,23 @@ import soundfile
 import librosa
 import base64
 from server_base import BaseServerProcessor
+from translation_interfaces import TranslationConfig, TranslationProvider
+from translation_utils import TranslationManager
+from server_processors import ConnectionInterface
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class WebSocketConnection:
     """WebSocket server that manages connections"""
-    def __init__(self, host, port):
+    def __init__(self, host: str, port: int):
         self.host = host
         self.port = port
     
     def run(self, handler_function):
-        """Run the WebSocket server with the provided handler function
-        
-        Args:
-            handler_function: Async function that takes a websocket connection
-        """
+        """Run the WebSocket server with the provided handler function"""
         async def start_server():
             async with websockets.serve(handler_function, self.host, self.port):
                 logger.info(f"WebSocket server started on ws://{self.host}:{self.port}")
-                # Keep the server running until interrupted
                 await asyncio.Future()
         
         try:
@@ -36,60 +32,44 @@ class WebSocketConnection:
         except KeyboardInterrupt:
             logger.info("Server stopped by user")
 
-class WebSocketClientConnection:
-    """WebSocket connection adapter for the BaseServerProcessor"""
+class WebSocketClientConnection(ConnectionInterface):
+    """WebSocket connection adapter implementing ConnectionInterface"""
     def __init__(self, websocket):
         self.websocket = websocket
         self.buffer = b''
     
-    async def non_blocking_receive_audio(self):
-        """Receive audio data from WebSocket"""
-        try:
-            # Receive message from WebSocket
-            message = await self.websocket.recv()
-            
-            # First check if the message is binary data
-            if isinstance(message, bytes):
-                return message
-                
-            # If it's a string, check if it's JSON with audio data
-            try:
-                data = json.loads(message)
-                if 'audio' in data:
-                    # Decode base64 audio
-                    return base64.b64decode(data['audio'])
-                return b''  # No audio data in the JSON
-            except json.JSONDecodeError:
-                # If not valid JSON and not binary, it could be a different format
-                # Return empty to avoid processing invalid data
-                logger.warning("Received message is neither binary nor valid JSON")
-                return b''
-                
-        except websockets.exceptions.ConnectionClosed:
-            return b''
-            
-    async def send(self, message):
+    async def send(self, message: str) -> None:
         """Send response back to the client"""
         try:
-            # # Parse the message format: "beg_time end_time text"
-            # print(message)
-            # parts = message.split(' ', 2)
-            # if len(parts) >= 3:
-            #     beg_time, end_time, text = parts
-            #     response = {
-            #         "text": text,
-            #         "start_timestamp": float(beg_time),
-            #         "end_timestamp": float(end_time)
-            #     }
-            # else:
-            #     # Handle case where message format is different
-            #     response = {"text": message}
-            
             await self.websocket.send(message)
         except websockets.exceptions.ConnectionClosed:
             logger.warning("Unable to send message - connection closed")
         except Exception as e:
             logger.error(f"Error sending message: {e}")
+    
+    async def non_blocking_receive_audio(self):
+        """Receive audio data from WebSocket"""
+        try:
+            message = await self.websocket.recv()
+            
+            if isinstance(message, bytes):
+                return message
+                
+            try:
+                data = json.loads(message)
+                if 'audio' in data:
+                    return base64.b64decode(data['audio'])
+                return b''
+            except json.JSONDecodeError:
+                logger.warning("Received message is neither binary nor valid JSON")
+                return b''
+                
+        except websockets.exceptions.ConnectionClosed:
+            return b''
+    
+    def is_closed(self) -> bool:
+        """Check if the WebSocket connection is closed"""
+        return self.websocket.closed if hasattr(self.websocket, 'closed') else self.websocket.state.name == 'CLOSED'
 
 class WebSocketServerProcessor(BaseServerProcessor):
     """WebSocket implementation of the server processor"""
@@ -106,19 +86,17 @@ class WebSocketServerProcessor(BaseServerProcessor):
                 beg = max(beg, self.last_end)
             self.last_end = end
             
-            # Log the transcript to console
             text = transcript[2].replace("  ", " ")
-            print("%1.0f %1.0f %s" % (beg, end, text), flush=True)
+            logger.debug(f"Transcript {beg}-{end}: {text}")
             
-            # Format as JSON
-            message = json.dumps({
+            msg = json.dumps({
                 "type": "transcription",
                 "start": beg,
                 "end": end,
                 "text": text
             })
             
-            await self.connection.send(message)
+            await self.connection.send(msg)
     
     async def process_async(self):
         """Asynchronous processing loop"""
@@ -133,7 +111,7 @@ class WebSocketServerProcessor(BaseServerProcessor):
                 try:
                     await self.send_result(o)
                 except Exception as e:
-                    logger.info(f"Connection error: {e}")
+                    logger.error(f"Connection error: {e}")
                     break
         except Exception as e:
             logger.error(f"Error in processor: {e}")
@@ -144,13 +122,17 @@ class WebSocketServerProcessor(BaseServerProcessor):
         out = []
         minlimit = self.min_chunk * self.SAMPLING_RATE
         while sum(len(x) for x in out) < minlimit:
+            # Get raw bytes using the await keyword explicitly
             raw_bytes = await self.connection.non_blocking_receive_audio()
             if not raw_bytes:
                 break
+            
+            # Process the bytes
             sf = soundfile.SoundFile(io.BytesIO(raw_bytes), channels=1, endian="LITTLE",
                                     samplerate=self.SAMPLING_RATE, subtype="PCM_16", format="RAW")
             audio, _ = librosa.load(sf, sr=self.SAMPLING_RATE, dtype=np.float32)
             out.append(audio)
+            
         if not out:
             return None
         conc = np.concatenate(out)
@@ -158,6 +140,20 @@ class WebSocketServerProcessor(BaseServerProcessor):
             return None
         self.is_first = False
         return np.concatenate(out)
+
+def create_websocket_processor(websocket, online_asr_proc, min_chunk, translation_config=None):
+    """Factory function to create appropriate WebSocket processor"""
+    if translation_config:
+        from server_processors import TranslatedServerProcessor
+        connection = WebSocketClientConnection(websocket)
+        return TranslatedServerProcessor(
+            connection=connection,
+            online_asr_proc=online_asr_proc,
+            min_chunk=min_chunk,
+            translation_config=translation_config
+        )
+    else:
+        return WebSocketServerProcessor(websocket, online_asr_proc, min_chunk)
 
 async def handle_connection(websocket, online_asr_factory):
     """Handle a WebSocket connection"""

@@ -2,14 +2,17 @@ import pytest
 import json
 import asyncio
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, AsyncMock, patch
 from server_processors import (
-    TranslationProcessor,
-    process_translation,
     ServerProcessor,
     TranslatedServerProcessor
 )
+from translation_processor import (
+    TranslationProcessor,
+    process_translation
+)
 from translation_utils import TranslationManager
+from translation_interfaces import TranslationConfig
 
 class MockConnection:
     def __init__(self):
@@ -123,17 +126,24 @@ class TestServerProcessor:
         
     @pytest.fixture
     def online_asr_proc(self):
-        return MagicMock()
+        proc = MagicMock()
+        proc.init = MagicMock()
+        proc.process_iter.return_value = (0.0, 1.0, "test transcript")
+        return proc
         
-    async def test_send_websocket(self, connection, online_asr_proc):
-        processor = ServerProcessor(connection, online_asr_proc, min_chunk=0.1)
-        await processor.send_websocket("0.0 1.0 test message")
+    @pytest.fixture
+    def processor(self, connection, online_asr_proc):
+        return ServerProcessor(connection, online_asr_proc, min_chunk=0.1)
+
+    async def test_send_websocket(self, processor):
+        test_message = "0.0 1.0 test message"
+        await processor.send_websocket(test_message)
         
-        sent_msg = json.loads(connection.sent_messages[0])
-        assert sent_msg["type"] == "transcription"
-        assert sent_msg["text"] == "test message"
-        assert sent_msg["start"] == 0.0
-        assert sent_msg["end"] == 1.0
+        message = json.loads(processor.connection.sent_messages[0])
+        assert message["type"] == "transcription"
+        assert message["text"] == "test message"
+        assert message["start"] == 0.0
+        assert message["end"] == 1.0
 
 @pytest.mark.asyncio
 class TestTranslatedServerProcessorExtended:
@@ -237,3 +247,49 @@ class TestProcessTranslationExtended:
         )
         
         assert len(text_buffer) == 1  # Should still buffer text despite error
+
+@pytest.mark.asyncio
+class TestProcessBehavior:
+    @pytest.fixture
+    def connection(self):
+        return MockConnection()
+        
+    @pytest.fixture
+    def online_asr_proc(self):
+        proc = MagicMock()
+        proc.init = MagicMock()
+        proc.process_iter.return_value = (0.0, 1.0, "test transcript")
+        return proc
+        
+    @pytest.fixture
+    def translation_config(self):
+        return TranslationConfig(
+            target_language="vi",
+            model="gemini-2.0-flash",
+            provider="gemini"
+        )
+    
+    async def test_graceful_shutdown(self, connection, online_asr_proc, translation_config):
+        processor = TranslatedServerProcessor(
+            connection=connection,
+            online_asr_proc=online_asr_proc,
+            min_chunk=0.1,
+            translation_config=translation_config
+        )
+        
+        # Mock methods to simulate shutdown
+        processor.receive_audio_chunk = MagicMock(return_value=None)
+        processor.translation_buffer.text_buffer = ["final text"]
+        processor.translation_manager.translate_text_async = AsyncMock(
+            return_value="văn bản cuối cùng"
+        )
+        
+        # Run process
+        await processor.process()
+        
+        # Verify final translation was sent
+        messages = [json.loads(m) for m in processor.connection.sent_messages]
+        translated = [m for m in messages if m["type"] == "translation"]
+        assert len(translated) == 1
+        assert translated[0]["translation"] == "văn bản cuối cùng"
+        assert translated[0]["original"] == "final text"
