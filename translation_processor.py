@@ -8,75 +8,76 @@ from translation_providers import TranslationProviderFactory
 
 logger = logging.getLogger(__name__)
 
-class TranslationProcessor:
-    def __init__(self, config):
-        self.config = config
-        self.provider = TranslationProviderFactory.create_provider(config['provider'])
-        self.target_language = config['target_language']
-        self.model = config['model']
-        self.system_prompt = config.get('system_prompt', '')
-        self.buffer = []
-        self.last_translation_time = 0
-        self.last_text_time = 0
+# class TranslationProcessor:
+#     def __init__(self, config):
+#         self.config = config
+#         self.provider = TranslationProviderFactory.create_provider(config['provider'])
+#         self.target_language = config['target_language']
+#         self.model = config['model']
+#         self.system_prompt = config.get('system_prompt', '')
+#         logger.info(f"System prompt: {self.system_prompt}")
+#         self.buffer = []
+#         self.last_translation_time = 0
+#         self.last_text_time = 0
         
-    def should_translate(self, combined_text, time_since_last, interval, max_buffer_time):
-        """
-        Determine if translation should be performed and return the text to translate and remainder
+#     def should_translate(self, combined_text, time_since_last, interval, max_buffer_time):
+#         """
+#         Determine if translation should be performed and return the text to translate and remainder
         
-        Returns:
-            tuple: (text_to_translate, remainder) where:
-                - text_to_translate (str or None): The text to translate, or None if no translation should be performed
-                - remainder (str): Any remaining text that wasn't translated, or empty string if none
-        """
-        text_length = len(combined_text)
+#         Returns:
+#             tuple: (text_to_translate, remainder) where:
+#                 - text_to_translate (str or None): The text to translate, or None if no translation should be performed
+#                 - remainder (str): Any remaining text that wasn't translated, or empty string if none
+#         """
+#         text_length = len(combined_text)
         
-        # Buffer timeout
-        if time_since_last > max_buffer_time:
-            logger.debug(f"Buffer time exceeded ({time_since_last:.1f}s > {max_buffer_time}s), translating")
-            return combined_text, ""
+#         # Buffer timeout
+#         if time_since_last > max_buffer_time:
+#             logger.debug(f"Buffer time exceeded ({time_since_last:.1f}s > {max_buffer_time}s), translating")
+#             return combined_text, ""
         
-        # Text too short
-        if text_length < self.config['min_text_length']:
-            logger.debug(f"Text too short for translation ({text_length} chars < {self.config['min_text_length']}), skipping")
-            return None, combined_text
+#         # Text too short
+#         if text_length < self.config['min_text_length']:
+#             logger.debug(f"Text too short for translation ({text_length} chars < {self.config['min_text_length']}), skipping")
+#             return None, combined_text
             
-        sentence_part, remainder = self.translation_manager.split_at_sentence_end(combined_text)
-        if sentence_part and len(sentence_part) >= self.config['min_text_length']:
-            return sentence_part, remainder
+#         sentence_part, remainder = self.translation_manager.split_at_sentence_end(combined_text)
+#         if sentence_part and len(sentence_part) >= self.config['min_text_length']:
+#             return sentence_part, remainder
         
-        sentence_part, remainder = self.translation_manager.split_at_comma(combined_text)
-        if sentence_part and len(sentence_part) >= self.config['min_text_length']:
-            return sentence_part, remainder
+#         sentence_part, remainder = self.translation_manager.split_at_comma(combined_text)
+#         if sentence_part and len(sentence_part) >= self.config['min_text_length']:
+#             return sentence_part, remainder
                 
-        # Text above maximum length - translate immediately
-        if text_length >= self.config['min_text_length'] * 5:
-            logger.debug(f"Text too long ({text_length} chars >= {self.config['min_text_length'] * 5}), translating immediately")
-            return combined_text, ""
+#         # Text above maximum length - translate immediately
+#         if text_length >= self.config['min_text_length'] * 5:
+#             logger.debug(f"Text too long ({text_length} chars >= {self.config['min_text_length'] * 5}), translating immediately")
+#             return combined_text, ""
         
-        return None, combined_text
+#         return None, combined_text
 
-    async def translate_buffer(self) -> Optional[str]:
-        """Translate the current buffer if conditions are met"""
-        if not self.buffer:
-            return None
+#     async def translate_buffer(self) -> Optional[str]:
+#         """Translate the current buffer if conditions are met"""
+#         if not self.buffer:
+#             return None
             
-        text = " ".join(self.buffer)
-        if len(text) < self.config['min_text_length']:
-            return None
+#         text = " ".join(self.buffer)
+#         if len(text) < self.config['min_text_length']:
+#             return None
             
-        try:
-            translation = await self.provider.translate_text(
-                text, 
-                self.target_language, 
-                self.model,
-                self.system_prompt if self.system_prompt else None
-            )
-            self.buffer = []
-            self.last_translation_time = time.time()
-            return translation
-        except Exception as e:
-            logger.error(f"Translation error: {e}")
-            return None
+#         try:
+#             translation = await self.provider.translate_text(
+#                 text, 
+#                 self.target_language, 
+#                 self.model,
+#                 self.system_prompt if self.system_prompt else None
+#             )
+#             self.buffer = []
+#             self.last_translation_time = time.time()
+#             return translation
+#         except Exception as e:
+#             logger.error(f"Translation error: {e}")
+#             return None
 
 class AdaptiveTranslationBuffer:
     """Manages translation buffer with adaptive minimum length based on translation history"""
@@ -146,83 +147,114 @@ class AdaptiveTranslationBuffer:
         if not self.time_buffer:
             return None, None
         return self.time_buffer[0][0], self.time_buffer[-1][1]
+    
+    def get_text_to_translate(self):
+        """
+        Determine if translation should be performed and return the text to translate and remainder
         
-    def should_translate(self):
-        """Determine if we should translate the current buffer"""
+        Returns:
+            tuple: (text_to_translate, remainder) where:
+                - text_to_translate (str or None): The text to translate, or None if no translation should be performed
+                - remainder (str): Any remaining text that wasn't translated, or empty string if none
+        """
         if not self.text_buffer:
-            return False
+            return None, ""
             
         current_time = time.time()
         time_since_last = current_time - self.last_translation_time
-        
-        # Check for inactivity timeout
-        if (current_time - self.last_text_time) > self.inactivity_timeout:
-            return True
-
         combined_text = self.get_combined_text()
         text_length = len(combined_text)
         
-        # Buffer exceeds maximum length
-        if text_length >= self.max_text_length:
-            return True
-        
-        # Buffer has been accumulating for too long
-        if time_since_last > self.max_buffer_time:
-            return True
+        # Check for inactivity timeout
+        if (current_time - self.last_text_time) > self.inactivity_timeout:
+            logger.debug(f"Inactivity timeout exceeded ({current_time - self.last_text_time:.1f}s > {self.inactivity_timeout}s), translating")
+            return combined_text, ""
             
+        # Buffer timeout
+        if time_since_last > self.max_buffer_time:
+            logger.debug(f"Buffer time exceeded ({time_since_last:.1f}s > {self.max_buffer_time}s), translating")
+            return combined_text, ""
+        
+        # Text too short
+        if text_length < self.adaptive_min_text_length:
+            logger.debug(f"Text too short for translation ({text_length} chars < {self.adaptive_min_text_length}), skipping")
+            return None, combined_text
+            
+        sentence_part, remainder = self.translation_manager.split_at_sentence_end(combined_text)
+        if sentence_part and len(sentence_part) >= self.adaptive_min_text_length:
+            return sentence_part, remainder
+        
+        sentence_part, remainder = self.translation_manager.split_at_comma(combined_text)
+        if sentence_part and len(sentence_part) >= self.adaptive_min_text_length:
+            return sentence_part, remainder
+                
+        # Text above maximum length - translate immediately
+        if text_length >= self.max_text_length:
+            logger.debug(f"Text too long ({text_length} chars >= {self.max_text_length}), translating immediately")
+            return combined_text, ""
+        
         # Enough time has passed and we have minimum text
         if time_since_last > self.translation_interval and text_length >= self.adaptive_min_text_length:
-            if self.translation_manager.is_sentence_end(combined_text):
-                return True
-                
-            sentence_part, _ = self.translation_manager.split_at_sentence_end(combined_text)
-            if sentence_part and len(sentence_part) >= self.adaptive_min_text_length:
-                return True
-                
-        return False
+            return combined_text, ""
+            
+        return None, combined_text
+        
+    def should_translate(self):
+        """Determine if we should translate the current buffer"""
+        text_to_translate, _ = self.get_text_to_translate()
+        return text_to_translate is not None
 
-async def process_translation(connection, text, text_buffer, last_translation_time,
-                      target_language='en', model="gemini-2.0-flash", 
-                      provider='gemini', interval=4.0, max_buffer_time=5.0,
-                      min_text_length=20, inactivity_timeout=2.0, translation_manager=None):
-    """Process text for translation in the websocket server context"""
-    if translation_manager is None:
-        logger.info(f"Creating new TranslationManager with target language {target_language}")
-        translation_manager = TranslationManager(
-            target_language=target_language,
-            model=model,
-            translation_provider=provider
-        )
+# async def process_translation(connection, text, text_buffer, last_translation_time,
+#                       target_language='en', model="gemini-2.0-flash", 
+#                       provider='gemini', interval=4.0, max_buffer_time=5.0,
+#                       min_text_length=20, inactivity_timeout=2.0, translation_manager=None):
+#     """Process text for translation in the websocket server context"""
+#     if translation_manager is None:
+#         logger.info(f"Creating new TranslationManager with target language {target_language}")
+#         translation_manager = TranslationManager(
+#             target_language=target_language,
+#             model=model,
+#             translation_provider=provider
+#         )
     
-    processor = TranslationProcessor(translation_manager, min_text_length)
+#     # Create or use existing buffer
+#     buffer = AdaptiveTranslationBuffer(
+#         translation_manager=translation_manager,
+#         min_text_length=min_text_length,
+#         translation_interval=interval,
+#         max_buffer_time=max_buffer_time,
+#         inactivity_timeout=inactivity_timeout
+#     )
     
-    text_buffer.append(text)
-    current_time = time.time()
-    combined_text = " ".join(text_buffer)
-    time_since_last = current_time - last_translation_time
+#     # Add text to the buffer
+#     current_time = time.time()
+#     buffer.add_text(text, current_time, current_time)
     
-    text_to_translate, remainder = processor.should_translate(combined_text, time_since_last, interval, max_buffer_time)
-    if text_to_translate:
-        text_buffer.clear()
-        text_buffer.append(remainder)
+#     # Check if we should translate
+#     text_to_translate, remainder = buffer.get_text_to_translate()
+    
+#     if text_to_translate:
+#         text_buffer.clear()
+#         if remainder:
+#             text_buffer.append(remainder)
             
-        translated_text = await translation_manager.translate_text_async(text_to_translate)
+#         translated_text = await translation_manager.translate_text_async(text_to_translate)
         
-        try:
-            msg = json.dumps({
-                "type": "translation",
-                "original": text_to_translate,
-                "translation": translated_text
-            })
+#         try:
+#             msg = json.dumps({
+#                 "type": "translation",
+#                 "original": text_to_translate,
+#                 "translation": translated_text
+#             })
             
-            if hasattr(connection, 'websocket'):
-                await connection.send(msg)
-            else:
-                connection.send(msg)
+#             if hasattr(connection, 'websocket'):
+#                 await connection.send(msg)
+#             else:
+#                 connection.send(msg)
                 
-        except Exception as e:
-            logger.error(f"Error sending translation: {e}")
+#         except Exception as e:
+#             logger.error(f"Error sending translation: {e}")
         
-        last_translation_time = current_time
+#         buffer.last_translation_time = time.time()
     
-    return translation_manager
+#     return translation_manager

@@ -67,7 +67,8 @@ class TranslationManager:
                     result = await self.provider.translate_text(
                         text=text,
                         target_language=self.config.target_language,
-                        model=self.config.model
+                        model=self.config.model,
+                        system_prompt=self.config.system_prompt
                     )
                     
                     # Cache the result

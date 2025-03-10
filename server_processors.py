@@ -86,12 +86,12 @@ class TranslatedServerProcessor(BaseServerProcessor):
             logger.info(f"ASR {round(o[0], 2)}-{round(o[1], 2)}: {text}")
             
             # Send original transcription
-            await self.send_websocket({
-                "type": "transcription",
-                "start": beg,
-                "end": end,
-                "text": text
-            })
+            # await self.send_websocket({
+            #     "type": "transcription",
+            #     "start": beg,
+            #     "end": end,
+            #     "text": text
+            # })
             
             # Check if we should translate now
             if self.translation_buffer.should_translate():

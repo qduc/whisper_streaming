@@ -27,6 +27,21 @@ class ServerConfig:
         yaml_config = load_config(config_file or args.config)
         translation_config = self._create_translation_config(args, yaml_config)
         self.translation_config = translation_config if args.translate else None
+
+        logger.info("Loaded config:")
+        # Log translation configuration if enabled
+        if self.translation_config:
+            logger.info(f"Translation enabled:")
+            logger.info(f"  - Target language: {self.translation_config.target_language}")
+            logger.info(f"  - Provider: {self.translation_config.provider}")
+            logger.info(f"  - Model: {self.translation_config.model}")
+            logger.info(f"  - Interval: {self.translation_config.interval} seconds")
+            logger.info(f"  - Max buffer time: {self.translation_config.max_buffer_time} seconds")
+            logger.info(f"  - Min text length: {self.translation_config.min_text_length} characters")
+            logger.info(f"  - Inactivity timeout: {self.translation_config.inactivity_timeout} seconds")
+            logger.info(f"  - System prompt: {self.translation_config.system_prompt}")
+        else:
+            logger.info("Translation disabled")
         
         # ASR config
         self.asr_args = args
@@ -100,6 +115,9 @@ class Server:
     def _create_processor(self, connection) -> BaseServerProcessor:
         """Create appropriate processor based on configuration"""
         if self.config.translation_config:
+            logger.info(f"Translation enabled using provider {self.config.translation_config.provider}, model {self.config.translation_config.model}")
+            logger.info(f"Target language: {self.config.translation_config.target_language}")
+            logger.info(f"System prompt: {self.config.translation_config.system_prompt}")
             return TranslatedServerProcessor(
                 connection=connection,
                 online_asr_proc=self.online_asr,
@@ -120,16 +138,22 @@ class Server:
     def run_websocket(self):
         """Run WebSocket server"""
         async def handle_connection(websocket):
+            client_addr = f"{websocket.remote_address[0]}:{websocket.remote_address[1]}" if websocket.remote_address else "unknown"
+            logger.info(f'Connected to client on {client_addr}')
+            
             processor = create_websocket_processor(
                 websocket=websocket,
                 online_asr_proc=self.online_asr,
                 min_chunk=self.config.asr_args.min_chunk_size,
                 translation_config=self.config.translation_config
             )
-            await processor.process_async()
+            
+            try:
+                await processor.process_async()
+            finally:
+                logger.info(f'Connection to client {client_addr} closed')
             
         server = WebSocketConnection(self.config.host, self.config.port)
-        logger.info(f'WebSocket server started on ws://{self.config.host}:{self.config.port}')
         server.run(handle_connection)
         
     def run_tcp(self):

@@ -37,6 +37,18 @@ class WebSocketClientConnection(ConnectionInterface):
     def __init__(self, websocket):
         self.websocket = websocket
         self.buffer = b''
+
+        # Setup ping handler if possible
+        if hasattr(websocket, 'ping_handler'):
+            original_ping = websocket.ping_handler
+            websocket.ping_handler = self._ping_handler_wrapper(original_ping)
+    
+    def _ping_handler_wrapper(self, original_handler):
+        """Wrap the original ping handler to add logging"""
+        async def wrapped_ping_handler(ping):
+            logger.debug(f"Received ping: {ping.decode('utf-8', errors='replace') if isinstance(ping, bytes) else ping}")
+            return await original_handler(ping)
+        return wrapped_ping_handler
     
     async def send(self, message: str) -> None:
         """Send response back to the client"""
