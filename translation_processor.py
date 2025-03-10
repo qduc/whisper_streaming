@@ -2,15 +2,22 @@
 import logging
 import time
 import json
+from typing import Optional
 from translation_utils import TranslationManager
+from translation_providers import TranslationProviderFactory
 
 logger = logging.getLogger(__name__)
 
 class TranslationProcessor:
-    def __init__(self, translation_manager, min_text_length):
-        self.translation_manager = translation_manager
-        self.min_text_length = min_text_length
-        self.max_text_length = min_text_length * 5  # Don't let buffer exceed 5x the min length
+    def __init__(self, config):
+        self.config = config
+        self.provider = TranslationProviderFactory.create_provider(config['provider'])
+        self.target_language = config['target_language']
+        self.model = config['model']
+        self.system_prompt = config.get('system_prompt', '')
+        self.buffer = []
+        self.last_translation_time = 0
+        self.last_text_time = 0
         
     def should_translate(self, combined_text, time_since_last, interval, max_buffer_time):
         """
@@ -29,24 +36,47 @@ class TranslationProcessor:
             return combined_text, ""
         
         # Text too short
-        if text_length < self.min_text_length:
-            logger.debug(f"Text too short for translation ({text_length} chars < {self.min_text_length}), skipping")
+        if text_length < self.config['min_text_length']:
+            logger.debug(f"Text too short for translation ({text_length} chars < {self.config['min_text_length']}), skipping")
             return None, combined_text
             
         sentence_part, remainder = self.translation_manager.split_at_sentence_end(combined_text)
-        if sentence_part and len(sentence_part) >= self.min_text_length:
+        if sentence_part and len(sentence_part) >= self.config['min_text_length']:
             return sentence_part, remainder
         
         sentence_part, remainder = self.translation_manager.split_at_comma(combined_text)
-        if sentence_part and len(sentence_part) >= self.min_text_length:
+        if sentence_part and len(sentence_part) >= self.config['min_text_length']:
             return sentence_part, remainder
                 
         # Text above maximum length - translate immediately
-        if text_length >= self.max_text_length:
-            logger.debug(f"Text too long ({text_length} chars >= {self.max_text_length}), translating immediately")
+        if text_length >= self.config['min_text_length'] * 5:
+            logger.debug(f"Text too long ({text_length} chars >= {self.config['min_text_length'] * 5}), translating immediately")
             return combined_text, ""
         
         return None, combined_text
+
+    async def translate_buffer(self) -> Optional[str]:
+        """Translate the current buffer if conditions are met"""
+        if not self.buffer:
+            return None
+            
+        text = " ".join(self.buffer)
+        if len(text) < self.config['min_text_length']:
+            return None
+            
+        try:
+            translation = await self.provider.translate_text(
+                text, 
+                self.target_language, 
+                self.model,
+                self.system_prompt if self.system_prompt else None
+            )
+            self.buffer = []
+            self.last_translation_time = time.time()
+            return translation
+        except Exception as e:
+            logger.error(f"Translation error: {e}")
+            return None
 
 class AdaptiveTranslationBuffer:
     """Manages translation buffer with adaptive minimum length based on translation history"""

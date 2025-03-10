@@ -6,6 +6,8 @@ from translation_interfaces import TranslationProvider
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_PROMPT = "Translate the following text to {target_language}"
+
 class GeminiProvider(TranslationProvider):
     """Gemini API translation provider"""
     
@@ -13,20 +15,21 @@ class GeminiProvider(TranslationProvider):
         self.api_key = os.environ.get("GEMINI_API_KEY")
         if not self.api_key:
             logger.warning("GEMINI_API_KEY environment variable not set")
+        else:
+            self.client = openai.AsyncOpenAI(
+                api_key=self.api_key,
+                base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+            )
             
-    async def translate_text(self, text: str, target_language: str, model: str) -> str:
+    async def translate_text(self, text: str, target_language: str, model: str, system_prompt: Optional[str] = None) -> str:
         if not self.api_key:
             raise ValueError("GEMINI_API_KEY environment variable not set")
             
-        client = openai.AsyncOpenAI(
-            api_key=self.api_key,
-            base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
-        )
-        
-        response = await client.chat.completions.create(
+        prompt = system_prompt if system_prompt else DEFAULT_PROMPT.format(target_language=target_language)
+        response = await self.client.chat.completions.create(
             model=model,
             messages=[
-                {"role": "system", "content": f"Translate the following text to {target_language}"},
+                {"role": "system", "content": prompt},
                 {"role": "user", "content": text}
             ],
             max_tokens=1000
@@ -40,11 +43,12 @@ class OpenAIProvider(TranslationProvider):
     def __init__(self):
         self.client = openai.AsyncOpenAI()
         
-    async def translate_text(self, text: str, target_language: str, model: str) -> str:
+    async def translate_text(self, text: str, target_language: str, model: str, system_prompt: Optional[str] = None) -> str:
+        prompt = system_prompt if system_prompt else DEFAULT_PROMPT.format(target_language=target_language)
         response = await self.client.chat.completions.create(
             model=model,
             messages=[
-                {"role": "system", "content": f"Translate the following text to {target_language}"},
+                {"role": "system", "content": prompt},
                 {"role": "user", "content": text}
             ],
             max_tokens=1000

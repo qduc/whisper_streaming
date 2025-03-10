@@ -3,5 +3,8 @@
         "tests"
     ],
     "python.testing.unittestEnabled": false,
-    "python.testing.pytestEnabled": true
+    "python.testing.pytestEnabled": true,
+    "github.copilot.nextEditSuggestions.enabled": true,
+    "github.copilot.chat.codesearch.enabled": true,
+    "github.copilot.chat.search.semanticTextResults": true
 }

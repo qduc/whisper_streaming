@@ -126,7 +126,7 @@ class Server:
                 min_chunk=self.config.asr_args.min_chunk_size,
                 translation_config=self.config.translation_config
             )
-            await processor.process()
+            await processor.process_async()
             
         server = WebSocketConnection(self.config.host, self.config.port)
         logger.info(f'WebSocket server started on ws://{self.config.host}:{self.config.port}')

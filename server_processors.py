@@ -107,7 +107,7 @@ class TranslatedServerProcessor(BaseServerProcessor):
         # Translate the text
         translated_text = await self.translation_manager.translate_text_async(combined_text)
         
-        logger.info(f"Translation {start_time}-{end_time}: {translated_text}")
+        logger.info(f"TRA {round(start_time/1000, 2)}-{round(end_time/1000, 2)}: {translated_text}")
         
         # Send translation
         await self.send_websocket({

@@ -17,4 +17,4 @@ translation:
   
   # Translation system prompt
   # Leave empty to use the default system prompt
-  system_prompt: ""
+  system_prompt: "Translate the following speech transcription into {target_language} in a natural, fluent way, ensuring clarity and readability. The content is about computers and programming, so use the natural language style commonly used by {target_language} tech professionals. Retain widely used English technical terms instead of translating them into {target_language}, unless a well-established {target_language} equivalent exists and is commonly used. Maintain the original meaning while ensuring the translation sounds natural and professional. Output only the translated text without any additional commentary or formatting."

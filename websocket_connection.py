@@ -174,14 +174,16 @@ async def handle_connection(websocket, online_asr_factory):
     except Exception as e:
         logger.error(f"Error handling WebSocket connection: {e}")
         await websocket.close(1011, f"Server error: {str(e)}")
+    finally:
+        if 'heartbeat' in locals():
+            heartbeat.cancel()
 
 async def start_server(host, port, online_asr_factory):
     """Start WebSocket server"""
     async def connection_handler(websocket, path):
         await handle_connection(websocket, online_asr_factory)
         
-    server = await websockets.serve(connection_handler, host, port)
-    logger.info(f"WebSocket server started on ws://{host}:{port}")
+    server = await websockets.serve(connection_handler, host, port, ping_interval=20, ping_timeout=10)
     
     # Keep the server running
     await server.wait_closed()
