@@ -1,139 +1,76 @@
 #!/usr/bin/env python3
-import sys
 import logging
 import time
+import json
+import asyncio
+from typing import Optional, Dict, Any
 from server_base import BaseServerProcessor
 from translation_utils import TranslationManager
+from translation_interfaces import TranslationConfig, TranslationProvider
+from translation_processor import AdaptiveTranslationBuffer
 
 logger = logging.getLogger(__name__)
+
+class ConnectionInterface:
+    """Interface for connection objects"""
+    async def send(self, message: str) -> None:
+        raise NotImplementedError
 
 class ServerProcessor(BaseServerProcessor):
     """Standard server processor that handles audio transcription without translation"""
     
-    def __init__(self, connection, online_asr_proc, min_chunk):
+    def __init__(self, connection: ConnectionInterface, online_asr_proc: Any, min_chunk: float):
         super().__init__(connection, online_asr_proc, min_chunk)
+
+    async def send_websocket(self, msg: str) -> None:
+        """Helper method to send websocket messages asynchronously"""
+        # Format message as JSON
+        if isinstance(msg, str):
+            parts = msg.split(" ", 2)
+            if len(parts) >= 3:
+                beg, end, text = float(parts[0]), float(parts[1]), parts[2]
+                msg = {
+                    "type": "transcription",
+                    "start": beg,
+                    "end": end,
+                    "text": text
+                }
+        
+        msg_str = json.dumps(msg) if isinstance(msg, dict) else msg
+        await self.connection.send(msg_str)
 
 class TranslatedServerProcessor(BaseServerProcessor):
     """Server processor that adds real-time translation capabilities"""
     
-    def __init__(self, connection, online_asr_proc, min_chunk, target_language='en',
-                 model="gemini-2.0-flash", translation_provider='gemini', 
-                 translation_interval=4.0, max_buffer_time=5.0, inactivity_timeout=2.0, 
-                 min_text_length=20):
+    def __init__(self, 
+                 connection: ConnectionInterface,
+                 online_asr_proc: Any,
+                 min_chunk: float,
+                 translation_config: TranslationConfig,
+                 translation_manager: Optional[TranslationManager] = None,
+                 translation_provider: Optional[TranslationProvider] = None):
         super().__init__(connection, online_asr_proc, min_chunk)
         
-        # Initialize translation manager
-        self.translation_manager = TranslationManager(
-            target_language=target_language,
-            model=model,
-            translation_provider=translation_provider
+        # Initialize translation manager with provided config and optional provider
+        self.translation_manager = translation_manager or TranslationManager(
+            config=translation_config,
+            provider=translation_provider
         )
         
-        # Translation buffer settings
-        self.text_buffer = []
-        self.time_buffer = []
-        self.last_translation_time = time.time()
-        self.last_text_time = time.time()  # Track time of last received text
-        self.translation_interval = translation_interval  # Minimum seconds between translation calls
-        self.max_buffer_time = max_buffer_time           # Maximum seconds to buffer before forcing translation
-        self.inactivity_timeout = inactivity_timeout     # Seconds of inactivity before translating remaining buffer
-        self.min_text_length = min_text_length           # Minimum characters to consider translation
+        # Initialize adaptive translation buffer
+        self.translation_buffer = AdaptiveTranslationBuffer(
+            translation_manager=self.translation_manager,
+            min_text_length=translation_config.min_text_length,
+            translation_interval=translation_config.interval,
+            max_buffer_time=translation_config.max_buffer_time,
+            inactivity_timeout=translation_config.inactivity_timeout
+        )
         
-    def should_translate_buffer(self):
-        """Determine if we should translate the current buffer"""
-        current_time = time.time()
-        # Check if enough time has passed since last translation
-        time_since_last = current_time - self.last_translation_time
-        
-        # Check for inactivity timeout - translate if no new text for a while and buffer not empty
-        if self.text_buffer and (current_time - self.last_text_time) > self.inactivity_timeout:
-            return True
-
-        # Case 1: Buffer has been accumulating for too long
-        if self.time_buffer and time_since_last > self.max_buffer_time:
-            return True
-            
-        # Case 2: Enough time has passed AND we have minimum text to translate
-        if time_since_last > self.translation_interval and len("".join(self.text_buffer)) >= self.min_text_length:
-            # Check if the buffer ends with a sentence terminator
-            combined_text = " ".join(self.text_buffer)
-            if self.translation_manager.is_sentence_end(combined_text):
-                return True
-            
-            # Check if we can at least split at a sentence boundary
-            sentence_part, _ = self.translation_manager.split_at_sentence_end(combined_text)
-            if sentence_part and len(sentence_part) >= self.min_text_length:
-                # We have at least one complete sentence that meets minimum length
-                return True
-            
-        # Don't translate yet
-        return False
-        
-    def partial_translate_buffer(self):
-        """Translate only the complete sentences in the buffer, keeping remainder for next translation"""
-        if not self.text_buffer:
-            return []
-            
-        combined_text = " ".join(self.text_buffer)
-        sentence_part, remainder = self.translation_manager.split_at_sentence_end(combined_text)
-        
-        if not sentence_part:  # No complete sentence found
-            return []
-            
-        # Translate the complete sentence part
-        translated_text = self.translation_manager.translate_text(sentence_part)
-        
-        # Calculate appropriate time boundaries
-        # A rough approximation based on character proportions 
-        if self.time_buffer:
-            total_chars = len(combined_text)
-            sentence_chars = len(sentence_part)
-            char_ratio = sentence_chars / total_chars if total_chars > 0 else 0
-            
-            start_time = self.time_buffer[0][0]
-            end_time_full = self.time_buffer[-1][1]
-            
-            # Estimate end time proportionally 
-            end_time = start_time + (end_time_full - start_time) * char_ratio
-            
-            # Update time and text buffers to keep remainder
-            if remainder:
-                # Keep track of remaining text and adjust time buffer
-                self.text_buffer = [remainder]
-                # Approximate the starting time for remainder
-                self.time_buffer = [(end_time, self.time_buffer[-1][1])]
-            else:
-                # Clear buffers if nothing remains
-                self.text_buffer = []
-                self.time_buffer = []
-                
-            self.last_translation_time = time.time()
-            
-            return [(start_time, end_time, translated_text)]
-        
-        return []
-        
-    def translate_buffer(self):
-        """Translate accumulated text buffer and clear it"""
-        if not self.text_buffer:
-            return []
-            
-        source_text = " ".join(self.text_buffer)
-        translated_text = self.translation_manager.translate_text(source_text)
-        
-        # Create list of (begin_time, end_time, text) for each segment
-        results = []
-        if self.time_buffer:
-            results = [(self.time_buffer[0][0], self.time_buffer[-1][1], translated_text)]
-            
-        # Clear buffers
-        self.text_buffer = []
-        self.time_buffer = []
-        self.last_translation_time = time.time()
-        
-        return results
+    async def send_websocket(self, msg: Dict[str, Any]) -> None:
+        """Helper method to send websocket messages asynchronously"""
+        await self.connection.send(json.dumps(msg))
     
-    def send_result(self, o):
+    async def send_result(self, o: tuple) -> None:
         """Override to handle translation"""
         if o[0] is not None:
             beg, end = o[0]*1000, o[1]*1000
@@ -142,84 +79,82 @@ class TranslatedServerProcessor(BaseServerProcessor):
             self.last_end = end
             
             # Add text to buffer for later translation
-            self.text_buffer.append(o[2])
-            self.time_buffer.append((beg, end))
-            
-            # Update the last text time for inactivity detection
-            self.last_text_time = time.time()
+            self.translation_buffer.add_text(o[2], beg, end)
 
             # Log original text
-            text = o[2].replace("  ", " ")  # Replace double spaces with single spaces
-            print(f"{round(o[0], 2)} {round(o[1], 2)} {text}")
+            text = o[2].replace("  ", " ")
+            logger.info(f"ASR {round(o[0], 2)}-{round(o[1], 2)}: {text}")
+            
+            # Send original transcription
+            # await self.send_websocket({
+            #     "type": "transcription",
+            #     "start": beg,
+            #     "end": end,
+            #     "text": text
+            # })
             
             # Check if we should translate now
-            if self.should_translate_buffer():
-                # Determine if we should do partial translation or full buffer
-                combined_text = " ".join(self.text_buffer)
-                has_complete_sentence = self.translation_manager.split_at_sentence_end(combined_text)[0] != ""
-                
-                if has_complete_sentence and len(combined_text) > self.min_text_length * 2:
-                    # Use partial translation when we have long text with complete sentences
-                    translated_segments = self.partial_translate_buffer()
-                else:
-                    # Otherwise translate the entire buffer
-                    translated_segments = self.translate_buffer()
-                
-                for t_beg, t_end, translated_text in translated_segments:
-                    msg = f"{t_beg} {t_end} {translated_text}"
-                    self.connection.send(msg)
+            text_to_translate, remainder = self.translation_buffer.get_text_to_translate()
+            if text_to_translate:
+                await self._process_translation_buffer(text_to_translate)
+                # Update the buffer with the remaining text
+                if remainder:
+                    self.translation_buffer.add_text(remainder, beg, end)
         else:
             logger.debug("No text in this segment")
-    
-    def check_inactivity_timeout(self):
-        """Check if we should translate the buffer due to inactivity"""
-        if self.text_buffer and (time.time() - self.last_text_time) > self.inactivity_timeout:
-            translated_segments = self.translate_buffer()
-            for t_beg, t_end, translated_text in translated_segments:
-                print(f"{t_beg} {t_end} {translated_text} (inactivity timeout)", flush=True, file=sys.stderr)
-                try:
-                    msg = f"{t_beg} {t_end} {translated_text}"
-                    self.connection.send(msg)
-                except BrokenPipeError:
-                    logger.info("broken pipe sending timeout buffer -- connection closed")
-                    break
-            return True
-        return False
             
-    def process(self):
-        """Override to handle final translation buffer and periodic timeout checks"""
+    async def _process_translation_buffer(self, text) -> None:
+        """Process and translate the current buffer contents"""
+        start_time, end_time = self.translation_buffer.get_time_bounds()
+        
+        # Translate the text
+        translated_text = await self.translation_manager.translate_text_async(text)
+
+        logger.info(f"TRA {round(start_time/1000, 2)}-{round(end_time/1000, 2)}: {translated_text}")
+        
+        # Send translation
+        await self.send_websocket({
+            "type": "translation",
+            "start": start_time,
+            "end": end_time,
+            "original": text,
+            "translation": translated_text
+        })
+        
+        # Clear the buffer and update adaptive length
+        self.translation_buffer.clear_buffer()
+        self.translation_buffer.update_adaptive_min_length()
+
+    async def process(self) -> None:
+        """Main processing loop with proper cleanup"""
         self.online_asr_proc.init()
         try:
             while True:
-                a = self.receive_audio_chunk()
-                
-                # Check for inactivity timeout while waiting for audio
-                if self.check_inactivity_timeout() and a is None:
-                    # If we've handled timeout and there's no more audio, we can break
+                # Check for closed WebSocket
+                if self.connection.is_closed():
+                    logger.info("WebSocket connection closed gracefully")
                     break
-                    
+
+                a = self.receive_audio_chunk()
+
                 if a is None:
                     break
                     
                 self.online_asr_proc.insert_audio_chunk(a)
                 o = self.online_asr_proc.process_iter()
                 try:
-                    self.send_result(o)
+                    await self.send_result(o)
                 except BrokenPipeError:
                     logger.info("broken pipe -- connection closed?")
                     break
                     
-            # Process any remaining text in the buffer
-            if self.text_buffer:
-                translated_segments = self.translate_buffer()
-                for t_beg, t_end, translated_text in translated_segments:
-                    print(f"{t_beg} {t_end} {translated_text} (final translated buffer)", flush=True, file=sys.stderr)
-                    try:
-                        msg = f"{t_beg} {t_end} {translated_text}"
-                        self.connection.send(msg)
-                    except BrokenPipeError:
-                        logger.info("broken pipe sending final buffer -- connection closed")
-                        break
+            # Process remaining buffer
+            if self.translation_buffer.text_buffer:
+                try:
+                    await self._process_translation_buffer(self.translation_buffer.text_buffer)
+                except BrokenPipeError:
+                    logger.info("broken pipe sending final buffer -- connection closed")
+                    
         except Exception as e:
             logger.error(f"Error in processor: {e}")
             raise
