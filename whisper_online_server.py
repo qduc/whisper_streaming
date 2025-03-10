@@ -150,6 +150,9 @@ class Server:
             
             try:
                 await processor.process_async()
+            except Exception as e:
+                logger.error(f"Error processing WebSocket connection: {e}")
+                await websocket.close(1011, f"Server error: {str(e)}")
             finally:
                 logger.info(f'Connection to client {client_addr} closed')
             

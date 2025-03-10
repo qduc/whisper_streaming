@@ -52,51 +52,6 @@ class ASRBase:
     def use_vad(self):
         raise NotImplemented("must be implemented in the child class")
 
-
-class WhisperTimestampedASR(ASRBase):
-    """Uses whisper_timestamped library as the backend. Initially, we tested the code on this backend. It worked, but slower than faster-whisper.
-    On the other hand, the installation for GPU could be easier.
-    """
-
-    sep = " "
-
-    def load_model(self, modelsize=None, cache_dir=None, model_dir=None):
-        import whisper
-        import whisper_timestamped
-        from whisper_timestamped import transcribe_timestamped
-        self.transcribe_timestamped = transcribe_timestamped
-        if model_dir is not None:
-            logger.debug("ignoring model_dir, not implemented")
-        return whisper.load_model(modelsize, download_root=cache_dir)
-
-    def transcribe(self, audio, init_prompt=""):
-        result = self.transcribe_timestamped(self.model,
-                audio, language=self.original_language,
-                initial_prompt=init_prompt, verbose=None,
-                condition_on_previous_text=True, **self.transcribe_kargs)
-        return result
- 
-    def ts_words(self,r):
-        # return: transcribe result object to [(beg,end,"word1"), ...]
-        o = []
-        for s in r["segments"]:
-            for w in s["words"]:
-                t = (w["start"],w["end"],w["text"])
-                o.append(t)
-        return o
-
-    def segments_end_ts(self, res):
-        return [s["end"] for s in res["segments"]]
-
-    def use_vad(self):
-        self.transcribe_kargs["vad"] = True
-
-    def set_translate_task(self):
-        self.transcribe_kargs["task"] = "translate"
-
-
-
-
 class FasterWhisperASR(ASRBase):
     """Uses faster-whisper library as the backend. Works much faster, appx 4-times (in offline mode). For GPU, it requires installation with a specific CUDNN version.
     """
@@ -712,6 +667,7 @@ class VACOnlineASRProcessor(OnlineASRProcessor):
 
     def process_iter(self):
         if self.is_currently_final:
+            logger.debug(f"finalizing online processing, status: {self.status}")
             return self.finish()
         elif self.current_online_chunk_buffer_size > self.SAMPLING_RATE*self.online_chunk_size:
             self.current_online_chunk_buffer_size = 0
@@ -730,41 +686,6 @@ class VACOnlineASRProcessor(OnlineASRProcessor):
         self.current_online_chunk_buffer_size = 0
         self.is_currently_final = False
         return ret
-
-
-
-WHISPER_LANG_CODES = "af,am,ar,as,az,ba,be,bg,bn,bo,br,bs,ca,cs,cy,da,de,el,en,es,et,eu,fa,fi,fo,fr,gl,gu,ha,haw,he,hi,hr,ht,hu,hy,id,is,it,ja,jw,ka,kk,km,kn,ko,la,lb,ln,lo,lt,lv,mg,mi,mk,ml,mn,mr,ms,mt,my,ne,nl,nn,no,oc,pa,pl,ps,pt,ro,ru,sa,sd,si,sk,sl,sn,so,sq,sr,su,sv,sw,ta,te,tg,th,tk,tl,tr,tt,uk,ur,uz,vi,yi,yo,zh".split(",")
-
-def create_tokenizer(lan):
-    """returns an object that has split function that works like the one of MosesTokenizer"""
-
-    assert lan in WHISPER_LANG_CODES, "language must be Whisper's supported lang code: " + " ".join(WHISPER_LANG_CODES)
-
-    if lan == "uk":
-        import tokenize_uk
-        class UkrainianTokenizer:
-            def split(self, text):
-                return tokenize_uk.tokenize_sents(text)
-        return UkrainianTokenizer()
-
-    # supported by fast-mosestokenizer
-    if lan in "as bn ca cs de el en es et fi fr ga gu hi hu is it kn lt lv ml mni mr nl or pa pl pt ro ru sk sl sv ta te yue zh".split():
-        from mosestokenizer import MosesTokenizer
-        return MosesTokenizer(lan)
-
-    # the following languages are in Whisper, but not in wtpsplit:
-    if lan in "as ba bo br bs fo haw hr ht jw lb ln lo mi nn oc sa sd sn so su sw tk tl tt".split():
-        logger.debug(f"{lan} code is not supported by wtpsplit. Going to use None lang_code option.")
-        lan = None
-
-    from wtpsplit import WtP
-    # downloads the model from huggingface on the first use
-    wtp = WtP("wtp-canine-s-12l-no-adapters")
-    class WtPtok:
-        def split(self, sent):
-            return wtp.split(sent, lang_code=lan)
-    return WtPtok()
-
 
 def add_shared_args(parser):
     """shared args for simulation (this entry point) and server
@@ -801,24 +722,27 @@ def asr_factory(args, logfile=sys.stderr):
         except ImportError:
             logger.info("Could not detect hardware, using faster-whisper backend")
             
+    # Create ASR instance based on selected backend
     if backend == "openai-api":
         logger.debug("Using OpenAI API.")
         asr = OpenaiApiASR(lan=args.lan)
     else:
-        if backend == "faster-whisper":
-            asr_cls = FasterWhisperASR
-        elif backend == "mlx-whisper":
-            asr_cls = MLXWhisper
-        else:
-            asr_cls = WhisperTimestampedASR
-
-        # Only for FasterWhisperASR and WhisperTimestampedASR
-        size = args.model
+        # Map backend to ASR class
+        asr_cls = {
+            "faster-whisper": FasterWhisperASR,
+            "mlx-whisper": MLXWhisper
+        }[backend]
+        
+        # Initialize ASR model
+        logger.info(f"Loading Whisper {args.model} model for {args.lan}...")
         t = time.time()
-        logger.info(f"Loading Whisper {size} model for {args.lan}...")
-        asr = asr_cls(modelsize=size, lan=args.lan, cache_dir=args.model_cache_dir, model_dir=args.model_dir)
-        e = time.time()
-        logger.info(f"done. It took {round(e-t,2)} seconds.")
+        asr = asr_cls(
+            modelsize=args.model,
+            lan=args.lan, 
+            cache_dir=args.model_cache_dir,
+            model_dir=args.model_dir
+        )
+        logger.info(f"Model loaded in {round(time.time()-t,2)} seconds.")
 
     # Apply common configurations
     if getattr(args, 'vad', False):  # Checks if VAD argument is present and True
@@ -832,11 +756,7 @@ def asr_factory(args, logfile=sys.stderr):
     else:
         tgt_language = language  # Whisper transcribes in this language
 
-    # Create the tokenizer
-    if args.buffer_trimming == "sentence":
-        tokenizer = create_tokenizer(tgt_language)
-    else:
-        tokenizer = None
+    tokenizer = None
 
     # Create the OnlineASRProcessor
     if args.vac:
