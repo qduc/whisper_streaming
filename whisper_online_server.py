@@ -228,7 +228,7 @@ def parse_arguments():
 def main():
     """Main server function"""
     args = parse_arguments()
-    set_logging(args, logger, other="")
+    setup_logging(args, logger, other="")
     
     # Create server configuration
     config = ServerConfig(args)
