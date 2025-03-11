@@ -1,3 +1,11 @@
+import numpy as np
+import logging
+
+from transcription.online_processor import OnlineASRProcessor
+
+
+logger = logging.getLogger(__name__)
+
 class VACOnlineASRProcessor(OnlineASRProcessor):
     '''Wraps OnlineASRProcessor with VAC (Voice Activity Controller).
 
